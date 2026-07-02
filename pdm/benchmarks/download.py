@@ -8,7 +8,7 @@ Examples:
     uv run python -m pdm.benchmarks.download ./benchmark_data all
     uv run python -m pdm.benchmarks.download ./benchmark_data cmapss
     uv run python -m pdm.benchmarks.download ./benchmark_data ai4i
-    uv run python -m pdm.benchmarks.download ./benchmark_data battery
+    uv run python -m pdm.benchmarks.download ./benchmark_data hdfail
 
 Datasets are downloaded into <base_dir>/<benchmark_name>/ and prepared
 as raw_train.csv + raw_test.csv via the benchmark loaders.
@@ -22,7 +22,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-BENCHMARKS = ["cmapss", "ai4i", "battery", "smap"]
+BENCHMARKS = ["cmapss", "ai4i", "smap", "hdfail"]
 
 # Download URLs and extraction logic per dataset
 DATASET_INFO = {
@@ -49,6 +49,12 @@ DATASET_INFO = {
         "format": "npy",
         "base_url": "https://huggingface.co/datasets/thuml/Time-Series-Library/resolve/main/SMAP",
         "files": ["SMAP_train.npy", "SMAP_test.npy", "SMAP_test_label.npy"],
+    },
+    "hdfail": {
+        "url": "https://cran.r-project.org/src/contrib/frailtySurv_1.3.8.tar.gz",
+        "description": "Backblaze Hard Drive Failure (hdfail from frailtySurv) — 52K drives, survival analysis",
+        "format": "tar.gz",
+        "files_needed": ["hdfail.rda"],
     },
 }
 
@@ -216,6 +222,65 @@ def download_smap(base_dir: Path) -> Path:
     return output_dir
 
 
+def download_hdfail(base_dir: Path) -> Path:
+    """Download and prepare the Backblaze Hard Drive Failure (hdfail) dataset.
+
+    Downloads the frailtySurv R package source tarball from CRAN, extracts
+    the hdfail.rda file, converts it to CSV using the rdata Python package,
+    and runs the benchmark loader to produce train/test CSVs.
+
+    Dataset: 52,422 hard drives with SMART sensor data over ~2 years.
+    5.5% failure rate (2,885 events), 94% right-censoring.
+    """
+    output_dir = base_dir / "hdfail"
+    if _is_ready(output_dir):
+        print(f"  ✓ hdfail already exists at {output_dir}")
+        return output_dir
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    info = DATASET_INFO["hdfail"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tar_path = Path(tmpdir) / "frailtySurv.tar.gz"
+        download_file(info["url"], tar_path, "frailtySurv R package (contains hdfail dataset)")
+
+        # Extract the .rda file from the tarball
+        import tarfile
+        with tarfile.open(tar_path, "r:gz") as tf:
+            # Look for hdfail.rda inside the package data/ directory
+            rda_member = None
+            for member in tf.getmembers():
+                if "hdfail" in member.name and member.name.endswith(".rda"):
+                    rda_member = member
+                    break
+            if rda_member is None:
+                raise RuntimeError("hdfail.rda not found in frailtySurv package")
+            tf.extract(rda_member, tmpdir)
+            rda_path = Path(tmpdir) / rda_member.name
+
+        # Convert .rda to pandas DataFrame using rdata
+        try:
+            import rdata
+        except ImportError:
+            raise RuntimeError(
+                "The 'rdata' package is required to load .rda files.\n"
+                "Install it with: uv pip install rdata"
+            )
+
+        parsed = rdata.parser.parse_file(rda_path)
+        converted = rdata.conversion.convert(parsed)
+        df = converted["hdfail"]
+
+        # Save as CSV for the loader
+        df.to_csv(output_dir / "hdfail.csv", index=False)
+
+    # Run the loader to produce raw_train.csv, raw_test.csv
+    from pdm.benchmarks.loaders import load_hdfail
+    load_hdfail(output_dir, output_dir=output_dir)
+    print(f"  ✓ hdfail prepared at {output_dir}")
+    return output_dir
+
+
 def _is_ready(output_dir: Path) -> bool:
     """Check if a benchmark dataset is already prepared."""
     return (output_dir / "raw_train.csv").exists() and (output_dir / "raw_test.csv").exists()
@@ -234,6 +299,7 @@ def ensure_available(base_dir: Path, name: str) -> Path:
         "ai4i": download_ai4i,
         "battery": download_battery,
         "smap": download_smap,
+        "hdfail": download_hdfail,
     }
     if name not in downloaders:
         raise ValueError(f"Unknown benchmark: {name}. Available: {list(downloaders.keys())}")

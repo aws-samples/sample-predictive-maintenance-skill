@@ -539,6 +539,97 @@ def load_smap(data_dir: Path, output_dir: Path = Path("./data")) -> DatasetMeta:
 
 
 # ---------------------------------------------------------------------------
+# Backblaze Hard Drive Failure (hdfail)
+# ---------------------------------------------------------------------------
+
+def _is_hdfail(data_dir: Path) -> bool:
+    data_dir = Path(data_dir)
+    return (data_dir / "hdfail.csv").exists()
+
+
+def load_hdfail(data_dir: Path, output_dir: Path = Path("./data")) -> DatasetMeta:
+    """Load Backblaze Hard Drive Failure (hdfail) dataset for survival analysis.
+
+    Source: frailtySurv R package (originally from Backblaze Drive Stats).
+    52,422 hard drives tracked over ~2 years.
+    - 2,885 failures (5.5%), 49,537 censored (94.5%)
+    - Features: temp (temperature °C), rsc (reallocated sectors),
+                rer (read error rate), psc (pending sector count)
+    - Cluster variable: model (drive model, used as frailty/group)
+
+    Survival formulation: time = days operational, event = drive failure.
+    Split: temporal (first 70% by entry time → train, last 30% → test).
+    """
+    from sklearn.model_selection import train_test_split
+
+    data_dir, output_dir = Path(data_dir), Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = data_dir / "hdfail.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"hdfail.csv not found in {data_dir}. "
+            "Download with: uv run python -m pdm.benchmarks.download <base_dir> hdfail"
+        )
+
+    df = pd.read_csv(csv_path)
+
+    # Standardize column names (from R: serial, model, time, status, temp, rsc, rer, psc)
+    expected_cols = {"serial", "model", "time", "status", "temp", "rsc", "rer", "psc"}
+    if not expected_cols.issubset(set(df.columns)):
+        # Try lowercase
+        df.columns = [c.lower() for c in df.columns]
+
+    # Rename for consistency with our survival format
+    df = df.rename(columns={"time": "duration", "status": "event"})
+
+    # Encode model as integer (categorical → numeric for tree models)
+    model_map = {m: i for i, m in enumerate(sorted(df["model"].unique()))}
+    df["model_encoded"] = df["model"].map(model_map)
+
+    feature_cols = ["temp", "rsc", "rer", "psc", "model_encoded"]
+
+    # Keep only relevant columns
+    keep_cols = ["serial", "duration", "event"] + feature_cols
+    df = df[[c for c in keep_cols if c in df.columns]].dropna()
+
+    # Ensure types
+    df["duration"] = df["duration"].astype(float)
+    df["event"] = df["event"].astype(int)
+
+    # Split: random stratified by event (to preserve event ratio in both splits)
+    train_df, test_df = train_test_split(
+        df, test_size=0.3, random_state=42, stratify=df["event"]
+    )
+
+    train_df.to_csv(output_dir / "raw_train.csv", index=False)
+    test_df.to_csv(output_dir / "raw_test.csv", index=False)
+
+    meta = DatasetMeta(
+        name="Backblaze Hard Drive Failure (hdfail)",
+        source="benchmark",
+        formulation="survival",
+        target_columns=["duration", "event"],
+        feature_columns=feature_cols,
+        entity_column="serial",
+        split_strategy="random_stratified",
+        n_train=len(train_df),
+        n_test=len(test_df),
+        n_features=len(feature_cols),
+        evaluation_protocol={"metric": "concordance_index", "secondary": "brier_score"},
+        reference={
+            "title": "Backblaze Hard Drive Failure Dataset (hdfail)",
+            "source": "frailtySurv R package / Backblaze Drive Stats",
+            "url": "https://www.backblaze.com/cloud-storage/resources/hard-drive-test-data",
+            "paper": "Ahmed & Green (2024), Neural Computing & Applications 37:1089-1104",
+        },
+        data_path={"train": str(output_dir / "raw_train.csv"), "test": str(output_dir / "raw_test.csv")},
+    )
+    meta.save(output_dir / "dataset_meta.json")
+    return meta
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -550,6 +641,7 @@ BENCHMARK_REGISTRY = {
     "xjtu_sy": {"detector": _is_xjtu_sy, "loader": load_xjtu_sy},
     "ncmapss": {"detector": _is_ncmapss, "loader": load_ncmapss},
     "smap": {"detector": _is_smap, "loader": load_smap},
+    "hdfail": {"detector": _is_hdfail, "loader": load_hdfail},
 }
 
 

@@ -8,7 +8,7 @@ Examples:
     uv run python -m pdm.benchmarks.benchmark ./benchmark_data all
     uv run python -m pdm.benchmarks.benchmark ./benchmark_data cmapss
     uv run python -m pdm.benchmarks.benchmark ./benchmark_data ai4i
-    uv run python -m pdm.benchmarks.benchmark ./benchmark_data battery
+    uv run python -m pdm.benchmarks.benchmark ./benchmark_data hdfail
 
 Options:
     --update       Update baselines.json with new results
@@ -29,7 +29,7 @@ import pandas as pd
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BASELINES_PATH = SCRIPT_DIR / "baselines.json"
-BENCHMARK_NAMES = ["cmapss", "ai4i", "battery", "smap"]
+BENCHMARK_NAMES = ["cmapss", "ai4i", "smap", "hdfail"]
 
 
 def load_baselines() -> dict:
@@ -84,18 +84,6 @@ def run_ai4i(data_dir: Path, time_limit: int = 120) -> dict:
     return {"f1": f1}
 
 
-def run_battery(data_dir: Path, time_limit: int = 300) -> dict:
-    """Run NASA Battery survival benchmark."""
-    from pdm.survival.model import SurvivalPredictor
-
-    train_df = pd.read_csv(data_dir / "raw_train.csv")
-    test_df = pd.read_csv(data_dir / "raw_test.csv")
-
-    model = SurvivalPredictor()
-    result = model.train(train_df, test_df, time_limit=time_limit)
-    return {"concordance_index": result.metrics["concordance_index"]}
-
-
 def run_smap(data_dir: Path, time_limit: int = 300) -> dict:
     """Run NASA SMAP anomaly detection benchmark.
 
@@ -138,6 +126,22 @@ def run_smap(data_dir: Path, time_limit: int = 300) -> dict:
     return {"f1": f1, "precision": precision, "recall": recall}
 
 
+def run_hdfail(data_dir: Path, time_limit: int = 300) -> dict:
+    """Run Backblaze Hard Drive Failure (hdfail) survival benchmark.
+
+    Uses SurvivalPredictor on the 52K-drive dataset with 94% censoring.
+    This is a challenging benchmark due to extreme censoring and limited features.
+    """
+    from pdm.survival.model import SurvivalPredictor
+
+    train_df = pd.read_csv(data_dir / "raw_train.csv")
+    test_df = pd.read_csv(data_dir / "raw_test.csv")
+
+    model = SurvivalPredictor()
+    result = model.train(train_df, test_df, time_limit=time_limit)
+    return {"concordance_index": result.metrics["concordance_index"]}
+
+
 def _point_adjust(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
     """Apply point-adjust protocol: if any prediction within a true anomaly
     segment is flagged, credit the entire segment as detected."""
@@ -169,8 +173,8 @@ def _point_adjust(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
 RUNNERS = {
     "cmapss": ("cmapss_fd001_rul", run_cmapss),
     "ai4i": ("ai4i_classification", run_ai4i),
-    "battery": ("battery_survival", run_battery),
     "smap": ("smap_anomaly_detection", run_smap),
+    "hdfail": ("hdfail_survival", run_hdfail),
 }
 
 

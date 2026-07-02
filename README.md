@@ -27,16 +27,29 @@ Give Kiro access to your S3 data and ask it to build a failure prediction model.
 
 ## Benchmark Results
 
-Evaluated on four canonical PdM benchmarks covering all formulations:
+Results from running the full skill workflow (Phases 1–5: setup → data prep → baseline → experimentation) on four canonical PdM benchmarks.
 
-| Benchmark | Metric | Our Best | Published SOTA | Gap |
-|-----------|--------|----------|----------------|-----|
-| C-MAPSS FD001 (RUL) | RMSE ↓ | **11.96** | 9.21 (AutoRUL) | +30% |
-| AI4I 2020 (Classification) | F1 ↑ | **0.889** | ~0.99 (FL+SMOTE) | -10% |
-| NASA Battery (Survival) | C-index ↑ | **0.9565** | ~0.95 | **At SOTA** |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.73** | ~0.90 (THOC/TranAD) | -19% |
+**Best results** (after Phase 5 experimentation loop with feature engineering):
 
-The library achieves competitive results with minimal configuration. The survival model matches published SOTA. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection F1 improved from 0.54 to 0.73 (+35%) by switching from point-wise Isolation Forest to temporal PCA reconstruction with smoothing (`TemporalAnomalyDetector`). The remaining gap to SOTA reflects that deep learning methods (LSTM-AE, Transformers) capture longer-range temporal dependencies. Domain interaction features (e.g., `power = torque × rot_speed`) provided the single highest improvement (+9.3% F1) across the classification benchmarks.
+| Benchmark | Metric | Best Result | Published SOTA | Notes |
+|-----------|--------|-------------|----------------|-------|
+| C-MAPSS FD001 (RUL) | RMSE ↓ | **11.96** | 9.21 (AutoRUL) | +30% gap; model diversity |
+| AI4I 2020 (Classification) | F1 ↑ | **0.889** | ~0.99 (FL+SMOTE) | -10% gap; closes with SMOTE |
+| Backblaze hdfail (Survival) | C-index ↑ | **0.88** | 0.958 (Cox, 21 feats) | 52K drives, 94% censoring |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.73** | ~0.90 (THOC/TranAD) | Temporal PCA reconstruction |
+
+**Baselines** (Phase 4 only — no experimentation, default model, no feature engineering):
+
+| Benchmark | Metric | Baseline | Notes |
+|-----------|--------|----------|-------|
+| C-MAPSS FD001 (RUL) | RMSE ↓ | 16.48 | `RULPredictor(window_size=15, stride=5, presets=medium_quality)` |
+| AI4I 2020 (Classification) | F1 ↑ | 0.82 | `FailureClassifier()` with default features |
+| Backblaze hdfail (Survival) | C-index ↑ | 0.88 | `SurvivalPredictor()` — 52K drives, 94% censoring |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | 0.73 | `TemporalAnomalyDetector(window_size=5, n_components=0.85)` |
+
+The baselines in `pdm/benchmarks/baselines.json` are regression gates — they ensure code changes don't degrade the out-of-the-box model quality. The "Best Result" column reflects what the skill achieves when the full experimentation loop (Phase 5) runs with domain-informed feature engineering.
+
+The library achieves competitive results with minimal configuration. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection F1 improved from 0.54 to 0.73 (+35%) by switching from point-wise Isolation Forest to temporal PCA reconstruction with smoothing (`TemporalAnomalyDetector`). The remaining gap to SOTA reflects that deep learning methods (LSTM-AE, Transformers) capture longer-range temporal dependencies.
 
 ## Installation
 

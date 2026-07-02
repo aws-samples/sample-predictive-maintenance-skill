@@ -19,15 +19,16 @@
     "time_limit": 120,
     "locked_at": "2026-07-02"
   },
-  "battery_survival": {
+  "hdfail_survival": {
     "metric": "concordance_index",
-    "baseline": 1.0,
+    "baseline": 0.8821,
     "tolerance_pct": 5,
     "direction": "higher_is_better",
-    "dataset": "NASA Battery",
+    "dataset": "Backblaze Hard Drive Failure (hdfail, 52K drives, 5 features)",
     "model": "SurvivalPredictor()",
     "time_limit": 300,
-    "locked_at": "2026-07-02"
+    "locked_at": "2026-07-02",
+    "note": "Replaces saturated NASA Battery benchmark. 94% censoring, 5.5% failure rate. Source: frailtySurv R package (Backblaze Drive Stats). Published SOTA C=0.958 with 21 SMART features (Ahmed & Green, 2024)."
   },
   "smap_anomaly_detection": {
     "metric": "f1",
