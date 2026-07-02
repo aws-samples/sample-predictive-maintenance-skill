@@ -1,0 +1,12 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "project_name": "pdm",
+    "input_bucket": "REPLACE_WITH_YOUR_BUCKET",
+    "ecr_image_uri": "REPLACE_WITH_YOUR_ECR_URI",
+    "model_s3_uri": "s3://REPLACE_WITH_YOUR_BUCKET/endpoint/model/",
+    "instance_type": "ml.m5.2xlarge",
+    "schedule": "cron(0 6 * * ? *)",
+    "lookback_days": "7"
+  }
+}

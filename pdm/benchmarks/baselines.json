@@ -1,0 +1,43 @@
+{
+  "cmapss_fd001_rul": {
+    "metric": "rmse",
+    "baseline": 16.48,
+    "tolerance_pct": 10,
+    "direction": "lower_is_better",
+    "dataset": "C-MAPSS FD001",
+    "model": "RULPredictor(window_size=15, rul_cap=125, stride=5, presets=medium_quality)",
+    "time_limit": 120,
+    "locked_at": "2026-07-02"
+  },
+  "ai4i_classification": {
+    "metric": "f1",
+    "baseline": 0.8197,
+    "tolerance_pct": 5,
+    "direction": "higher_is_better",
+    "dataset": "AI4I 2020",
+    "model": "FailureClassifier()",
+    "time_limit": 120,
+    "locked_at": "2026-07-02"
+  },
+  "battery_survival": {
+    "metric": "concordance_index",
+    "baseline": 1.0,
+    "tolerance_pct": 5,
+    "direction": "higher_is_better",
+    "dataset": "NASA Battery",
+    "model": "SurvivalPredictor()",
+    "time_limit": 300,
+    "locked_at": "2026-07-02"
+  },
+  "smap_anomaly_detection": {
+    "metric": "f1",
+    "baseline": 0.5391,
+    "tolerance_pct": 10,
+    "direction": "higher_is_better",
+    "dataset": "NASA SMAP (55 channels, 25 dims)",
+    "model": "AnomalyDetector(IsolationForest, n_estimators=200)",
+    "time_limit": 300,
+    "locked_at": "2026-07-02",
+    "note": "Point-adjust F1; placeholder baseline"
+  }
+}

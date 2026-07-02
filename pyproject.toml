@@ -1,0 +1,47 @@
+[project]
+name = "pdm-project"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+    "boto3>=1.28",
+    "scikit-learn>=1.3",
+    "scipy>=1.11",
+    "autogluon.tabular[lightgbm,catboost,xgboost]>=1.2",
+    "matplotlib>=3.7",
+    "typing_extensions>=4.0",
+    "shap>=0.43",
+    "lifelines>=0.29.0",
+    "scikit-survival>=0.23.0",
+    "joblib>=1.3",
+    "imbalanced-learn>=0.12",
+    "optuna>=3.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4",
+    "pytest-timeout>=2.2",
+]
+# Future feature dependencies (not required for core)
+monitoring = ["alibi-detect>=0.12"]
+tsfresh = ["tsfresh>=0.20"]
+deep = ["tsai>=0.3.9", "torch>=2.0", "fastai>=2.7"]
+foundation = ["chronos-forecasting>=1.4", "torch>=2.0"]
+transfer = ["rul-adapt>=0.4", "pytorch-lightning>=2.0"]
+anomaly = ["pyod>=2.0"]
+
+[tool.setuptools.packages.find]
+include = ["pdm*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 180
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::UserWarning:lifelines.*",
+    "ignore::FutureWarning:autogluon.*",
+]
