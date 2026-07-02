@@ -61,9 +61,10 @@ Use this skill when the user:
     │   ├── dataset_schema.py        # DatasetMeta dataclass
     │   ├── feature_extraction.py    # tsfresh wrapper with manual fallback
     │   └── interactions.py          # Auto-generate pairwise feature interactions
-    ├── anomaly_detection/           # AnomalyDetector (Isolation Forest)
+    ├── anomaly_detection/           # AnomalyDetector (Isolation Forest) + TemporalAnomalyDetector (PCA reconstruction)
     │   ├── __init__.py
-    │   ├── model.py                 # AnomalyDetector(PDMModel)
+    │   ├── model.py                 # AnomalyDetector(PDMModel) — point-wise IF
+    │   ├── temporal.py              # TemporalAnomalyDetector(PDMModel) — sliding-window PCA reconstruction
     │   ├── train_anomaly.py         # Legacy CLI (still works)
     │   ├── evaluate_anomaly.py      # AD evaluation + synthetic injection test
     │   ├── synthetic_anomalies.py   # Synthetic anomaly injection utility

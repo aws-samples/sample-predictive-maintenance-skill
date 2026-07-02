@@ -31,13 +31,13 @@
   },
   "smap_anomaly_detection": {
     "metric": "f1",
-    "baseline": 0.5391,
+    "baseline": 0.7262,
     "tolerance_pct": 10,
     "direction": "higher_is_better",
     "dataset": "NASA SMAP (55 channels, 25 dims)",
-    "model": "AnomalyDetector(IsolationForest, n_estimators=200)",
+    "model": "TemporalAnomalyDetector(window_size=5, n_components=0.85, smooth_window=11, scoring=max)",
     "time_limit": 300,
     "locked_at": "2026-07-02",
-    "note": "Point-adjust F1; placeholder baseline"
+    "note": "Point-adjust F1; temporal PCA reconstruction with smoothing"
   }
 }

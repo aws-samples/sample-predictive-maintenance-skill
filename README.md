@@ -34,9 +34,9 @@ Evaluated on four canonical PdM benchmarks covering all formulations:
 | C-MAPSS FD001 (RUL) | RMSE ↓ | **11.96** | 9.21 (AutoRUL) | +30% |
 | AI4I 2020 (Classification) | F1 ↑ | **0.889** | ~0.99 (FL+SMOTE) | -10% |
 | NASA Battery (Survival) | C-index ↑ | **0.9565** | ~0.95 | **At SOTA** |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.54** | ~0.90 (THOC/TranAD) | -40% |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.73** | ~0.90 (THOC/TranAD) | -19% |
 
-The library achieves competitive results with minimal configuration. The survival model matches published SOTA. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection gap reflects using only Isolation Forest — the library also offers multi-algorithm selection (LOF, COPOD, ECOD) and foundation model embeddings for improved detection. Domain interaction features (e.g., `power = torque × rot_speed`) provided the single highest improvement (+9.3% F1) across all benchmarks.
+The library achieves competitive results with minimal configuration. The survival model matches published SOTA. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection F1 improved from 0.54 to 0.73 (+35%) by switching from point-wise Isolation Forest to temporal PCA reconstruction with smoothing (`TemporalAnomalyDetector`). The remaining gap to SOTA reflects that deep learning methods (LSTM-AE, Transformers) capture longer-range temporal dependencies. Domain interaction features (e.g., `power = torque × rot_speed`) provided the single highest improvement (+9.3% F1) across the classification benchmarks.
 
 ## Installation
 
@@ -125,7 +125,7 @@ predictive-maintenance/
 
 The `pdm/` directory is a standalone Python library usable independently of the Kiro skill. It provides:
 
-- **4 model classes**: `AnomalyDetector`, `FailureClassifier`, `RULPredictor`, `SurvivalPredictor`
+- **5 model classes**: `AnomalyDetector`, `TemporalAnomalyDetector`, `FailureClassifier`, `RULPredictor`, `SurvivalPredictor`
 - **CLI tools** for training, evaluation, and inference
 - **S3 utilities** for exploring and loading partitioned parquet data
 - **Batch inference** utilities for production scheduling

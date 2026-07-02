@@ -99,18 +99,26 @@ def run_battery(data_dir: Path, time_limit: int = 300) -> dict:
 def run_smap(data_dir: Path, time_limit: int = 300) -> dict:
     """Run NASA SMAP anomaly detection benchmark.
 
-    Trains an Isolation Forest on normal training data, predicts on test,
-    and computes F1 score against ground-truth labels.
+    Uses TemporalAnomalyDetector (sliding-window PCA reconstruction error
+    with temporal smoothing) which captures temporal dependencies critical
+    for segment-based anomaly detection under point-adjust evaluation.
     """
     from sklearn.metrics import f1_score, precision_score, recall_score
-    from pdm.anomaly_detection.model import AnomalyDetector
+    from pdm.anomaly_detection.temporal import TemporalAnomalyDetector
 
     train_df = pd.read_csv(data_dir / "raw_train.csv")
     test_df = pd.read_csv(data_dir / "raw_test.csv")
 
-    # Determine contamination from test label ratio (for threshold calibration)
+    # Determine contamination from test label ratio
     anomaly_ratio = test_df["label"].mean()
-    model = AnomalyDetector(contamination=min(anomaly_ratio, 0.15), n_estimators=200)
+
+    model = TemporalAnomalyDetector(
+        window_size=5,
+        n_components=0.85,
+        smooth_window=11,
+        contamination=min(anomaly_ratio, 0.15),
+        scoring="max",
+    )
     result = model.train(train_df, test_df, time_limit=time_limit)
 
     # Generate predictions on test set
