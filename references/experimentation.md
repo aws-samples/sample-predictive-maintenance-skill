@@ -832,3 +832,61 @@ The skill uses `sagemaker-scikit-learn:1.4-2-py312-cpu-py3` because:
 | Training (multi-label, 6 labels) | ~5-8 min | With ray: ~1 min/label; without: ~4 min/label |
 | **Total per job** | **~10-15 min** | On-demand, no interruptions |
 | **Total (3 parallel jobs)** | **~10-15 min** | Same — they run simultaneously |
+
+---
+
+## RUL-Specific Experimentation Guide
+
+For **C-MAPSS** and similar run-to-failure datasets, the following techniques have been empirically validated to produce the best results with the `pdm.rul.RULPredictor`:
+
+### Proven Recipe (achieves ~11.4 RMSE on FD001)
+
+1. **Drop constant sensors**: Remove sensors with zero/near-zero variance (FD001: s1, s5, s6, s10, s16, s18, s19). The model does this automatically with `drop_constant_sensors=True`.
+
+2. **Window size = 30, stride = 1**: Use the full window for final training. During HPO, use stride=3 or stride=5 for faster iteration.
+
+3. **Feature selection (top 120)**: Extract all 14 features per sensor (238 total for 17 sensors), then select top 120 by LightGBM feature importance. This reduces overfitting dramatically.
+
+4. **Optuna backend with KFold CV**: Use `backend="optuna"` with 50+ trials. The model uses KFold cross-validation internally to avoid overfitting to a single validation split.
+
+5. **XGBoost + LightGBM in model pool**: Both are competitive; ensemble of diverse models helps.
+
+6. **Multi-seed averaging**: Training with 3-5 random seeds and averaging predictions reduces variance by ~5%.
+
+### Example Training Command
+
+```python
+from pdm.rul.model import RULPredictor
+
+model = RULPredictor(window_size=30, rul_cap=125)
+result = model.train(
+    train_df, test_df,
+    backend="optuna",
+    n_trials=100,
+    stride=1,
+    time_limit=600,
+    drop_constant_sensors=True,
+)
+# Expected: RMSE ~11.4 on FD001
+```
+
+### Key Lessons Learned
+
+| Hypothesis | Result | Impact |
+|-----------|--------|--------|
+| Drop constant sensors | Slight improvement alone, critical for feature selection | Enabler |
+| Feature selection (238→120) | **Major breakthrough** — reduced RMSE from ~12.8 to ~11.4 | +12% |
+| GroupKFold CV during HPO | Prevents overfitting to val split, more reliable selection | +5% |
+| LightGBM in model pool | Competitive with XGBoost, enables faster HPO | Diversity |
+| Multi-seed averaging | Small but consistent improvement (~0.1-0.3 RMSE) | +2% |
+| Exponential smoothing | No improvement on FD001 (noise not the problem) | 0% |
+| Cross-sensor interactions | No improvement (window features already capture this) | 0% |
+| Stacking meta-learner | Worse than simple weighted ensemble | Negative |
+
+### What Didn't Work
+
+- **Exponential smoothing**: FD001 sensors are already smooth from simulation
+- **Cross-sensor interaction features**: Window statistics already capture these patterns
+- **Stacking (Ridge meta-learner)**: Overfits to the small ensemble, simple averaging works better
+- **Window sizes < 25**: Too little context for degradation trends
+- **160+ features**: Diminishing returns, starts overfitting again

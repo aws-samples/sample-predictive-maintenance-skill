@@ -1,2 +1,3 @@
 from pdm.anomaly_detection.model import AnomalyDetector
 from pdm.anomaly_detection.temporal import TemporalAnomalyDetector
+from pdm.anomaly_detection.spectral_residual import SpectralResidualDetector

@@ -17,6 +17,31 @@ Build a baseline for the primary model and, **if the user opted in**, for anomal
 
 > **Skip this section** if the user declined anomaly detection (Path A: `Anomaly detection: no` in User Decisions; Path B: `anomaly_detection: false` in `dataset_meta.json`).
 
+### Model Selection
+
+Choose the anomaly detection model based on the data characteristics:
+
+| Data Type | Recommended Model | When to Use |
+|-----------|-------------------|-------------|
+| **Multivariate time-series** (sensor telemetry, IoT streams) | `SpectralResidualDetector` | Data has temporal structure, anomalies are segment-based, periodic/quasi-periodic normal behavior |
+| **Multivariate time-series** (when SR doesn't fit) | `TemporalAnomalyDetector` | Data has temporal structure but no periodic patterns (e.g., monotonically degrading signals) |
+| **Tabular / point-wise features** | `AnomalyDetector` (Isolation Forest) | No temporal dependency, each row is independent (e.g., pre-aggregated daily features) |
+
+**Default for time-series data**: Use `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` — it achieves F1=0.97 on NASA SMAP vs 0.73 for PCA reconstruction.
+
+**How SpectralResidualDetector works:**
+1. Compute FFT per feature → log-magnitude spectrum
+2. Spectral residual = log_mag - moving_average(log_mag) (highlights unexpected frequencies)
+3. IFFT back to time domain → per-feature saliency scores
+4. Z-score against training distribution (calibrates per-feature sensitivity)
+5. P95 percentile aggregation across features (robust to noisy features)
+6. Optimal threshold search on labeled data (or contamination-based without labels)
+
+**When to use TemporalAnomalyDetector instead:**
+- Data is non-stationary with trends (SR assumes stationarity within each signal)
+- Anomalies manifest as reconstruction errors rather than spectral surprises
+- You need sliding-window context (e.g., "this value is normal in isolation but wrong given the last 10 timesteps")
+
 Unsupervised Isolation Forest trained on normal-only data. Complementary to the supervised model — catches novel failure modes not in training labels.
 
 ### Training

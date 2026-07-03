@@ -1,12 +1,12 @@
 {
   "cmapss_fd001_rul": {
     "metric": "rmse",
-    "baseline": 16.48,
+    "baseline": 11.93,
     "tolerance_pct": 10,
     "direction": "lower_is_better",
     "dataset": "C-MAPSS FD001",
-    "model": "RULPredictor(window_size=15, rul_cap=125, stride=5, presets=medium_quality)",
-    "time_limit": 120,
+    "model": "RULPredictor(window_size=30, rul_cap=125, backend=optuna, n_trials=30, stride=5, drop_constant_sensors=True)",
+    "time_limit": 180,
     "locked_at": "2026-07-02"
   },
   "ai4i_classification": {
@@ -32,13 +32,13 @@
   },
   "smap_anomaly_detection": {
     "metric": "f1",
-    "baseline": 0.7262,
+    "baseline": 0.9667,
     "tolerance_pct": 10,
     "direction": "higher_is_better",
     "dataset": "NASA SMAP (55 channels, 25 dims)",
-    "model": "TemporalAnomalyDetector(window_size=5, n_components=0.85, smooth_window=11, scoring=max)",
+    "model": "SpectralResidualDetector(sr_window=5, aggregation_percentile=95)",
     "time_limit": 300,
     "locked_at": "2026-07-02",
-    "note": "Point-adjust F1; temporal PCA reconstruction with smoothing"
+    "note": "Point-adjust F1; spectral residual with z-score normalization and percentile aggregation"
   }
 }

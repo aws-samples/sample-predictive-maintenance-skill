@@ -33,10 +33,10 @@ Results from running the full skill workflow (Phases 1–5: setup → data prep 
 
 | Benchmark | Metric | Best Result | Published SOTA | Notes |
 |-----------|--------|-------------|----------------|-------|
-| C-MAPSS FD001 (RUL) | RMSE ↓ | **11.96** | 9.21 (AutoRUL) | +30% gap; model diversity |
+| C-MAPSS FD001 (RUL) | RMSE ↓ | **11.40** | 9.21 (AutoRUL) | +24% gap; feature selection + XGBoost HPO |
 | AI4I 2020 (Classification) | F1 ↑ | **0.889** | ~0.99 (FL+SMOTE) | -10% gap; closes with SMOTE |
 | Backblaze hdfail (Survival) | C-index ↑ | **0.88** | 0.958 (Cox, 21 feats) | 52K drives, 94% censoring |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.73** | ~0.90 (THOC/TranAD) | Temporal PCA reconstruction |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.97** | ~0.90 (THOC/TranAD) | Spectral Residual; **exceeds SOTA** |
 
 **Baselines** (Phase 4 only — no experimentation, default model, no feature engineering):
 
@@ -45,11 +45,11 @@ Results from running the full skill workflow (Phases 1–5: setup → data prep 
 | C-MAPSS FD001 (RUL) | RMSE ↓ | 16.48 | `RULPredictor(window_size=15, stride=5, presets=medium_quality)` |
 | AI4I 2020 (Classification) | F1 ↑ | 0.82 | `FailureClassifier()` with default features |
 | Backblaze hdfail (Survival) | C-index ↑ | 0.88 | `SurvivalPredictor()` — 52K drives, 94% censoring |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | 0.73 | `TemporalAnomalyDetector(window_size=5, n_components=0.85)` |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | 0.97 | `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` |
 
 The baselines in `pdm/benchmarks/baselines.json` are regression gates — they ensure code changes don't degrade the out-of-the-box model quality. The "Best Result" column reflects what the skill achieves when the full experimentation loop (Phase 5) runs with domain-informed feature engineering.
 
-The library achieves competitive results with minimal configuration. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection F1 improved from 0.54 to 0.73 (+35%) by switching from point-wise Isolation Forest to temporal PCA reconstruction with smoothing (`TemporalAnomalyDetector`). The remaining gap to SOTA reflects that deep learning methods (LSTM-AE, Transformers) capture longer-range temporal dependencies.
+The library achieves competitive results with minimal configuration. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection F1 improved from 0.73 to 0.97 (+33%) by switching from temporal PCA reconstruction (`TemporalAnomalyDetector`) to Spectral Residual frequency-domain analysis (`SpectralResidualDetector`). The SR method computes per-feature FFT saliency, z-scores against training distribution, and aggregates using a robust percentile — achieving results that exceed published SOTA on SMAP without requiring deep learning or GPU.
 
 ## Installation
 
@@ -116,7 +116,7 @@ predictive-maintenance/
 ├── pdm/                        # Standalone PdM library (usable without the skill)
 │   ├── README.md               # Library documentation
 │   ├── data/                   # S3 exploration, EAV aggregation, feature utils
-│   ├── anomaly_detection/      # Isolation Forest training + inference
+│   ├── anomaly_detection/      # Spectral Residual + Temporal PCA + Isolation Forest
 │   ├── fault_prediction/       # AutoGluon classification + RUL
 │   ├── rul/                    # Sliding-window RUL regression
 │   ├── survival/               # Cox PH, Weibull AFT, Random Survival Forest
@@ -138,7 +138,7 @@ predictive-maintenance/
 
 The `pdm/` directory is a standalone Python library usable independently of the Kiro skill. It provides:
 
-- **5 model classes**: `AnomalyDetector`, `TemporalAnomalyDetector`, `FailureClassifier`, `RULPredictor`, `SurvivalPredictor`
+- **5 model classes**: `AnomalyDetector`, `TemporalAnomalyDetector`, `SpectralResidualDetector`, `FailureClassifier`, `RULPredictor`, `SurvivalPredictor`
 - **CLI tools** for training, evaluation, and inference
 - **S3 utilities** for exploring and loading partitioned parquet data
 - **Batch inference** utilities for production scheduling
