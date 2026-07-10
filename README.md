@@ -65,6 +65,38 @@ Copy this folder into your Kiro skills directory:
 - **Global** (all projects): `~/.kiro/skills/predictive-maintenance/`
 - **Workspace** (one project): `.kiro/skills/predictive-maintenance/`
 
+## Optional: Knowledge Acquisition Skill
+
+The predictive-maintenance skill can leverage the **knowledge-acquisition** skill to build a domain-specific research wiki before running experiments. This is used in **Phase 5 (Experimentation)** — specifically Step 0: "Build Domain Knowledge Base" — where the agent researches state-of-the-art techniques from academic literature (arXiv, Semantic Scholar, Papers With Code, etc.) to ground experiments in proven methods rather than ad-hoc intuition.
+
+The wiki produces actionable hypotheses for feature engineering and model selection, tailored to the specific PdM formulation (RUL, classification, survival, anomaly detection). Experiments that draw from literature-backed techniques consistently outperform those based on intuition alone.
+
+### Install
+
+```bash
+git clone https://github.com/aws-samples/sample-knowledge-acquisition-skill.git ~/.kiro/skills/knowledge-acquisition
+```
+
+Or for workspace-scoped installation:
+
+```bash
+git clone https://github.com/aws-samples/sample-knowledge-acquisition-skill.git .kiro/skills/knowledge-acquisition
+```
+
+### What It Does During Experimentation
+
+When the experimentation phase begins, the agent uses the knowledge-acquisition skill to:
+
+1. **Gather sources** — searches arXiv, Semantic Scholar, OpenAlex, and Papers With Code for papers relevant to the formulation (e.g., "remaining useful life prediction", "unsupervised anomaly detection IoT")
+2. **Distill findings** — extracts key techniques, feature engineering strategies, and model architectures
+3. **Write wiki pages** under `./wiki/concepts/`:
+   - `feature-engineering-pdm.md` — state-of-the-art feature engineering for the formulation
+   - `<formulation>-techniques.md` — best models, loss functions, evaluation metrics
+   - `domain-features.md` — domain-specific features for the equipment type
+4. **Generate experiment hypotheses** — each wiki page ends with an "Implications for Experiments" section listing concrete, actionable ideas
+
+Without this skill installed, the experimentation phase still works — the agent will propose experiments based on feature importance analysis and CAAFE-style semantic reasoning. The knowledge-acquisition skill adds literature grounding that improves experiment quality.
+
 ## Requirements
 
 - **Python 3.11+** with `uv` (or pip)
