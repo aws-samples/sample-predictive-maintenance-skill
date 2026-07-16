@@ -23,7 +23,19 @@ fi
 BUCKET="$1"
 TIMESTAMP=$(date +%Y%m%d_%H%M)
 DEST="s3://${BUCKET}/${TIMESTAMP}"
-SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Resolve SKILL_DIR: first check if script is inside the skill, then search from project root
+_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -d "${_SCRIPT_DIR}/../sagemaker_container" ]; then
+  # Script is running from within the skill (e.g., .kiro/skills/predictive-maintenance/scripts/)
+  SKILL_DIR="$(cd "${_SCRIPT_DIR}/.." && pwd)"
+elif [ -d ".kiro/skills/predictive-maintenance/sagemaker_container" ]; then
+  # Script is at project root, resolve relative to cwd
+  SKILL_DIR="$(cd .kiro/skills/predictive-maintenance && pwd)"
+else
+  echo "⚠️  Cannot find skill directory (sagemaker_container). Inference and infrastructure artifacts will be skipped."
+  SKILL_DIR=""
+fi
 
 # Auto-detect winning experiment directory
 if [ -n "${2:-}" ]; then
@@ -79,17 +91,33 @@ aws s3 sync "$MODEL_DIR/ag_model/" "${DEST}/model/ag_model/" \
 
 # --- 4. Inference runtime ---
 echo "[4/5] Inference..."
-aws s3 cp "${SKILL_DIR}/sagemaker_container/inference.py" "${DEST}/inference/inference.py" --quiet
-aws s3 cp "${SKILL_DIR}/sagemaker_container/serve.py" "${DEST}/inference/serve.py" --quiet
-aws s3 cp "${SKILL_DIR}/sagemaker_container/Dockerfile" "${DEST}/inference/Dockerfile" --quiet
-aws s3 cp "${SKILL_DIR}/sagemaker_container/requirements.txt" "${DEST}/inference/requirements.txt" --quiet
+if [ -n "$SKILL_DIR" ] && [ -d "${SKILL_DIR}/sagemaker_container" ]; then
+  aws s3 cp "${SKILL_DIR}/sagemaker_container/inference.py" "${DEST}/inference/inference.py" --quiet
+  aws s3 cp "${SKILL_DIR}/sagemaker_container/serve.py" "${DEST}/inference/serve.py" --quiet
+  aws s3 cp "${SKILL_DIR}/sagemaker_container/Dockerfile" "${DEST}/inference/Dockerfile" --quiet
+  aws s3 cp "${SKILL_DIR}/sagemaker_container/requirements.txt" "${DEST}/inference/requirements.txt" --quiet
+else
+  echo "  ⚠️  Skipped (skill directory not found)"
+fi
 
 # --- 5. Infrastructure ---
 echo "[5/5] Infrastructure..."
-for f in app.py batch_inference_stack.py cdk.json requirements.txt; do
-  [ -f "${SKILL_DIR}/infrastructure/$f" ] && aws s3 cp "${SKILL_DIR}/infrastructure/$f" "${DEST}/infrastructure/$f" --quiet
-done
-[ -d "${SKILL_DIR}/infrastructure/lambda" ] && aws s3 sync "${SKILL_DIR}/infrastructure/lambda/" "${DEST}/infrastructure/lambda/" --quiet
+if [ -n "$SKILL_DIR" ] && [ -d "${SKILL_DIR}/infrastructure" ]; then
+  for f in app.py batch_inference_stack.py cdk.json requirements.txt; do
+    [ -f "${SKILL_DIR}/infrastructure/$f" ] && aws s3 cp "${SKILL_DIR}/infrastructure/$f" "${DEST}/infrastructure/$f" --quiet
+  done
+  [ -d "${SKILL_DIR}/infrastructure/lambda" ] && aws s3 sync "${SKILL_DIR}/infrastructure/lambda/" "${DEST}/infrastructure/lambda/" --quiet
+else
+  # Fall back to local infrastructure/ if it was copied to project root
+  if [ -d "infrastructure" ]; then
+    for f in app.py batch_inference_stack.py cdk.json requirements.txt; do
+      [ -f "infrastructure/$f" ] && aws s3 cp "infrastructure/$f" "${DEST}/infrastructure/$f" --quiet
+    done
+    [ -d "infrastructure/lambda" ] && aws s3 sync "infrastructure/lambda/" "${DEST}/infrastructure/lambda/" --quiet
+  else
+    echo "  ⚠️  Skipped (infrastructure directory not found)"
+  fi
+fi
 
 # --- README ---
 [ -f README.md ] && aws s3 cp README.md "${DEST}/README.md" --quiet

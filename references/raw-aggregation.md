@@ -195,6 +195,8 @@ dataset = dataset.merge(metadata, on="device_id", how="left")
 
 **⚠️ Label leakage at split boundary:** When labels use a forward-looking horizon (e.g., `horizon_days=14`), the last `horizon_days` of training data can have labels that peek into the test period. Use `temporal_split(..., horizon_days=N)` to enforce a gap between the last train date and first test date. Without this gap, the model trains on labels that were constructed using information from the test period.
 
+### For time-series data (has a date column):
+
 ```python
 from pdm.data.utils import temporal_split
 import os
@@ -207,6 +209,36 @@ os.makedirs("./data", exist_ok=True)
 train.to_csv("./data/raw_train.csv", index=False)
 test.to_csv("./data/raw_test.csv", index=False)
 ```
+
+### For cross-sectional data (no date column / no temporal dimension):
+
+**⚠️ Do NOT use sequential split on cross-sectional data.** When data has no temporal ordering, a sequential split (first 80% / last 20%) can produce severe label imbalance — some labels may have ZERO positives in the test set if failure instances are clustered in certain row ranges.
+
+Use **stratified random split** instead, stratifying on the composite failure indicator:
+
+```python
+from sklearn.model_selection import train_test_split
+import os
+
+# Create a composite indicator for stratification (any failure = 1)
+label_cols = [c for c in dataset.columns if c.startswith("label_")]
+any_failure = dataset[label_cols].max(axis=1)
+
+train, test = train_test_split(
+    dataset, train_size=0.8, random_state=42, stratify=any_failure
+)
+train = train.reset_index(drop=True)
+test = test.reset_index(drop=True)
+
+os.makedirs("./data", exist_ok=True)
+train.to_csv("./data/raw_train.csv", index=False)
+test.to_csv("./data/raw_test.csv", index=False)
+```
+
+**How to determine which split to use:**
+- If the dataset has a date/time column AND observations are ordered chronologically → **temporal split**
+- If the dataset is cross-sectional (each row is an independent observation with no time dimension) → **stratified random split**
+- If unsure, check: does the same entity appear in multiple rows over time? If yes → temporal. If no → stratified.
 
 Output:
 - `./data/raw_train.csv` — raw training data (~80% earliest)

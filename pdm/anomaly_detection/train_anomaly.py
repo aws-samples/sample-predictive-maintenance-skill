@@ -113,6 +113,8 @@ def train(args):
     print(f"  Test anomaly rate:  {(test_scores > threshold).mean():.2%}")
 
     # Save artefacts
+    # Ensure output is a Path (supports both str and Path when called programmatically)
+    args.output = Path(args.output) if not isinstance(args.output, Path) else args.output
     args.output.mkdir(parents=True, exist_ok=True)
 
     joblib.dump(model, args.output / "isolation_forest.joblib")

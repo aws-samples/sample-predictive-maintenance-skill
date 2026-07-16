@@ -3,8 +3,22 @@ import pyarrow.fs as pafs
 import boto3
 
 
+def _strip_s3_uri(bucket: str) -> str:
+    """Strip s3:// prefix and any trailing path from a bucket name or URI.
+
+    Accepts: 's3://my-bucket', 's3://my-bucket/prefix', or plain 'my-bucket'.
+    Returns: bare bucket name only (no prefix).
+    """
+    if bucket.startswith("s3://"):
+        bucket = bucket[5:]
+    # Remove any path component (e.g., 'my-bucket/some/path' → 'my-bucket')
+    bucket = bucket.split("/")[0]
+    return bucket
+
+
 def _get_bucket_region(bucket: str) -> str:
     """Detect the region of an S3 bucket."""
+    bucket = _strip_s3_uri(bucket)
     loc = boto3.client("s3").get_bucket_location(Bucket=bucket)["LocationConstraint"]
     return loc or "us-east-1"  # None means us-east-1
 
@@ -184,12 +198,13 @@ def explore_table_summary(bucket: str, prefix: str) -> dict:
     Reads only parquet metadata (no data loaded) — fast even for many files.
 
     Args:
-        bucket: S3 bucket name.
+        bucket: S3 bucket name or URI (e.g. 'my-bucket' or 's3://my-bucket').
         prefix: S3 prefix (e.g. 'device_health/').
 
     Returns:
         Dict with file_count, total_rows, and list of file keys.
     """
+    bucket = _strip_s3_uri(bucket)
     s3 = boto3.client("s3", region_name=_get_bucket_region(bucket))
     resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
     files = [o["Key"] for o in resp.get("Contents", []) if o["Key"].endswith(".parquet")]
@@ -232,6 +247,7 @@ def validate_join(
         Dict with left_unique, right_unique, overlap, pct_of_left, pct_of_right,
         left_dtype, right_dtype.
     """
+    bucket = _strip_s3_uri(bucket)
     if left_partitioned:
         left_df = load_partitioned_parquet(
             bucket, left_prefix, columns=[left_key], max_partitions=max_partitions
@@ -286,6 +302,7 @@ def discover_join_keys(
     """
     import itertools
 
+    bucket = _strip_s3_uri(bucket)
     partitioned = set(partitioned or [])
 
     # Discover column names per table (read one file's schema only — no data)
@@ -359,6 +376,7 @@ def list_eav_attributes(
         - If group_col is provided: dict mapping group_name → sorted list of attributes.
           Example: {"M2W_FW": ["ac_current_rms_l1", "temp_l1", ...], "SYSTEM": ["cpu_temp", ...]}
     """
+    bucket = _strip_s3_uri(bucket)
     cols = [attribute_col]
     if group_col:
         cols.append(group_col)
@@ -407,6 +425,7 @@ def discover_cross_name_joins(
     import itertools
     import pandas as pd
 
+    bucket = _strip_s3_uri(bucket)
     partitioned = set(partitioned or [])
 
     def _load_sample(prefix):
@@ -554,12 +573,13 @@ def explore_bucket(bucket: str, extension: str = None) -> dict:
     """Return the file tree of an S3 bucket as a nested dict/list structure.
 
     Args:
-        bucket: S3 bucket name.
+        bucket: S3 bucket name or URI (e.g. 'my-bucket' or 's3://my-bucket').
         extension: If provided, only include files with this extension (e.g. '.parquet').
 
     Returns:
         Dict with bucket name as key and a list of folder dicts / file strings as value.
     """
+    bucket = _strip_s3_uri(bucket)
     s3 = boto3.client("s3", region_name=_get_bucket_region(bucket))
     tree = []
     paginator = s3.get_paginator("list_objects_v2")
@@ -609,6 +629,7 @@ def load_partitioned_parquet(
     import time
     import pandas as pd
 
+    bucket = _strip_s3_uri(bucket)
     s3 = boto3.client("s3", region_name=_get_bucket_region(bucket))
 
     # Discover partition prefixes
@@ -677,6 +698,7 @@ def load_all_flat_parquet(
     import time
     import pandas as pd
 
+    bucket = _strip_s3_uri(bucket)
     s3 = boto3.client("s3", region_name=_get_bucket_region(bucket))
     resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
     files = [o["Key"] for o in resp.get("Contents", []) if o["Key"].endswith(".parquet")]

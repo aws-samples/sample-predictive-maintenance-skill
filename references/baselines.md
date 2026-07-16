@@ -76,7 +76,8 @@ def prepare_and_train():
     import argparse
     args = argparse.Namespace(
         train=DATA_DIR / "train.csv", test=DATA_DIR / "test.csv",
-        output=MODEL_DIR, contamination=0.05, n_estimators=200, seed=42,
+        output=MODEL_DIR,  # Must be a Path object (or str — auto-converted internally)
+        contamination=0.05, n_estimators=200, seed=42,
     )
     train_ad(args)
 

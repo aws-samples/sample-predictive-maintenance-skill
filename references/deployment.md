@@ -188,10 +188,11 @@ Deploy a daily batch inference job via SageMaker Processing Job.
 1. **SageMaker execution role ARN** (skip if already provided for 8A)
 2. **Input data bucket** (default: the input bucket from Phase 2)
 
-Output: `s3://{input-bucket}-predictions/{YYYYMMDD}/predictions.csv`
+Output: `s3://{output-bucket}/predictions/{YYYYMMDD}/predictions.csv`
 
 ### ⚠️ Gotchas (Batch Inference)
 
+- **Separate output bucket**: Always use a **dedicated output bucket** (e.g., `{input-bucket}-predictions`) for model artifacts, batch code, and predictions. Writing to the input bucket pollutes it with non-data files, which causes noise when auto-exploring bucket structure in Phase 2 on subsequent iterations.
 - **`partition_filter` is a substring, not a callable**: `load_partitioned_parquet(partition_filter=...)` accepts ONLY a string. To load a date range, call once per day in a loop. Use `pdm.deployment.batch.load_telemetry_window`.
 - **Proba-only for speed**: Never call `predict()` + `predict_proba()` together — `predict_proba()` alone suffices (derive class via `> 0.5`).
 - **`python -u` for progress**: Always run with `python -u` so tqdm progress bars render in real time.
@@ -379,7 +380,7 @@ uv run python -u batch_inference.py
 | Invocation timeout on first call | Normal cold start — retry after 30s |
 | Batch transform `Failed` — timeout | Increase `InvocationsTimeoutInSeconds`, reduce `MaxPayloadInMB` |
 | Incomplete output (missing files) | Add S3 lifecycle rule to abort incomplete multipart uploads |
-| `NoSuchBucket` on predictions bucket | `ensure_output_bucket()` failed — check IAM `s3:CreateBucket` permission |
+| `NoSuchBucket` on predictions bucket | Output bucket doesn't exist — create it first: `aws s3 mb s3://{input-bucket}-predictions --region $REGION`. Ensure the Lambda/Processing Job role has `s3:CreateBucket` or pre-create the bucket. |
 | Only 1 instance active despite `InstanceCount>1` | Split input into multiple files — 1 file = 1 instance max |
 | CSV parsing error in container | Input has embedded newlines — clean data or use JSON Lines format |
 | Processing Job OOM (`use an instance type with more memory`) | Model + telemetry exceeds 16GB — use `ml.m5.2xlarge` (32GB) |
