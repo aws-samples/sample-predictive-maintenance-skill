@@ -1,0 +1,9 @@
+# Populated at deploy time by scripts/deploy_edge.sh
+pdm/
+model/
+data/device_sensors.csv
+
+# GDK build artifacts
+greengrass-build/
+zip-build/
+__pycache__/

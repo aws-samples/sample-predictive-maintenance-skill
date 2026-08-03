@@ -1,0 +1,45 @@
+---
+RecipeFormatVersion: "2020-01-25"
+ComponentName: "{COMPONENT_NAME}"
+ComponentVersion: "{COMPONENT_VERSION}"
+ComponentDescription: "Predictive maintenance inference at the edge. Loads a trained PDM model, reads sensor data from a pluggable source, and publishes predictions to AWS IoT Core."
+ComponentPublisher: "{COMPONENT_AUTHOR}"
+ComponentConfiguration:
+  DefaultConfiguration:
+    PredictionTopic: "things/{iot:thingName}/pdm/predictions"
+    ModelDir: "{artifacts:decompressedPath}/pdm-inference/model"
+    DataDir: "{artifacts:decompressedPath}/pdm-inference/data"
+    SensorSource: "csv"
+    InferenceIntervalSeconds: "60"
+    accessControl:
+      aws.greengrass.ipc.mqttproxy:
+        com.example.PdmEdgeInference:mqttproxy:1:
+          policyDescription: Allows publishing predictions and subscribing to config topics.
+          operations:
+            - aws.greengrass#PublishToIoTCore
+            - aws.greengrass#SubscribeToIoTCore
+          resources:
+            - "things/{iot:thingName}/pdm/*"
+Manifests:
+  - Platform:
+      os: all
+    Artifacts:
+      - Uri: "s3://BUCKET_NAME/COMPONENT_NAME/COMPONENT_VERSION/pdm-inference.zip"
+        Unarchive: ZIP
+    Lifecycle:
+      install:
+        Timeout: 600
+        Script: |
+          VENV="/home/ggc_user/.venv"
+          if [ ! -d "$VENV" ]; then
+            python3 -m venv "$VENV"
+          fi
+          "$VENV/bin/pip" install --quiet -r {artifacts:decompressedPath}/pdm-inference/requirements.txt
+      run:
+        Script: |
+          COMPONENT_DIR="{artifacts:decompressedPath}/pdm-inference"
+          COMPONENT_DIR="$COMPONENT_DIR" /home/ggc_user/.venv/bin/python "$COMPONENT_DIR/main.py" \
+            --model-dir "$COMPONENT_DIR/model" \
+            --source "{configuration:/SensorSource}" \
+            --csv-path "$COMPONENT_DIR/data/device_sensors.csv" \
+            --interval "{configuration:/InferenceIntervalSeconds}"

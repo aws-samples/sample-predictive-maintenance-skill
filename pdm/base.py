@@ -77,19 +77,26 @@ class PDMModel(ABC):
 
     @classmethod
     def get_model_class(cls, formulation: str) -> type["PDMModel"]:
-        """Route formulation string to the correct model class."""
-        from pdm.anomaly_detection.model import AnomalyDetector
-        from pdm.fault_prediction.model import FailureClassifier
-        from pdm.rul.model import RULPredictor
-        from pdm.survival.model import SurvivalPredictor
+        """Route formulation string to the correct model class.
 
-        registry: dict[str, type[PDMModel]] = {
-            "anomaly_detection": AnomalyDetector,
-            "classification": FailureClassifier,
-            "multilabel": FailureClassifier,
-            "rul": RULPredictor,
-            "survival": SurvivalPredictor,
-        }
-        if formulation not in registry:
-            raise ValueError(f"Unknown formulation: {formulation}. Valid: {list(registry)}")
-        return registry[formulation]
+        Uses conditional imports so only the needed model family is loaded.
+        This avoids requiring all dependencies (e.g., autogluon, lifelines)
+        when only using a single formulation.
+        """
+        if formulation == "anomaly_detection":
+            from pdm.anomaly_detection.model import AnomalyDetector
+            return AnomalyDetector
+        elif formulation in ("classification", "multilabel"):
+            from pdm.fault_prediction.model import FailureClassifier
+            return FailureClassifier
+        elif formulation == "rul":
+            from pdm.rul.model import RULPredictor
+            return RULPredictor
+        elif formulation == "survival":
+            from pdm.survival.model import SurvivalPredictor
+            return SurvivalPredictor
+        else:
+            raise ValueError(
+                f"Unknown formulation: {formulation}. "
+                f"Valid: ['anomaly_detection', 'classification', 'multilabel', 'rul', 'survival']"
+            )

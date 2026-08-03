@@ -1,0 +1,19 @@
+{
+  "component": {
+    "com.example.PdmEdgeInference": {
+      "author": "PdM Team",
+      "version": "NEXT_PATCH",
+      "build": {
+        "build_system": "zip",
+        "options": {
+          "zip_name": "pdm-inference"
+        }
+      },
+      "publish": {
+        "bucket": "pdmedgeresourcesstack-artifactsbucket2aac5544-vnbbowkm5odh",
+        "region": "us-east-1"
+      }
+    }
+  },
+  "gdk_version": "1.3.0"
+}
