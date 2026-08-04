@@ -1,0 +1,11 @@
+{
+  "app": "python3 app.py",
+  "context": {
+    "project_name": "pdm-edge",
+    "enable_s3_logging": false,
+    "enable_cloudwatch_metrics": true,
+    "enable_dashboard": true,
+    "metric_field": "machine_failure_proba",
+    "metric_name": "FailureProbability"
+  }
+}

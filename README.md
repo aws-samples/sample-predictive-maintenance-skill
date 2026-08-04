@@ -1,6 +1,6 @@
 # predictive-maintenance — Kiro Skill
 
-An AI agent skill that generates complete predictive maintenance (PdM) models end-to-end: from raw IoT sensor data in S3 to a deployed SageMaker inference endpoint or daily batch job.
+An AI agent skill that generates complete predictive maintenance (PdM) models end-to-end: from raw IoT sensor data in S3 to a deployed SageMaker inference endpoint, daily batch job, or edge device via AWS IoT Greengrass.
 
 ## What It Does
 
@@ -13,7 +13,7 @@ Give Kiro access to your S3 data and ask it to build a failure prediction model.
 5. **Experimentation** — hypothesis-driven feature engineering loop
 6. **Save & Plan** — artifacts to S3, post-training decisions
 7. **Example Inference** — score one day of data for validation
-8. **Deploy** — real-time endpoint and/or daily batch
+8. **Deploy** — real-time endpoint, daily batch, and/or edge device (Greengrass)
 9. **Documentation** — auto-generated project README
 
 ## Supported Formulations
@@ -24,6 +24,31 @@ Give Kiro access to your S3 data and ask it to build a failure prediction model.
 | **Failure Classification** | You have failure labels and need binary/multi-label alerts |
 | **Survival Analysis** | Devices are maintained before failure (censored data) |
 | **Anomaly Detection** | You want unsupervised deviation detection without failure labels |
+
+## Deployment Options
+
+| Mode | Infrastructure | Use When |
+|------|---------------|----------|
+| **Real-time endpoint** (8A) | SageMaker endpoint | Low-latency API calls, fleet-wide scoring |
+| **Batch inference** (8B) | EventBridge + Lambda + SageMaker Processing | Daily scheduled scoring, cost-efficient |
+| **Edge deployment** (8C) | IoT Greengrass + EC2/physical device | On-device inference, offline-capable, bandwidth-constrained |
+
+### Edge Deployment (Phase 8C)
+
+Deploy the trained model to edge devices using AWS IoT Greengrass. The model runs inference locally on sensor data and publishes only predictions (not raw data) to AWS IoT Core via MQTT. The edge component uses a pluggable sensor source interface — ships with CSV replay for demos; implement custom sources for OPC-UA, MQTT, Modbus, or any industrial protocol.
+
+```bash
+# Deploy infrastructure (EC2 + IoT Core + Greengrass)
+cd infrastructure/edge && cdk deploy
+
+# Build, publish, and deploy the Greengrass component
+bash scripts/deploy_edge.sh --model-dir ./fault_prediction/baseline/model
+
+# Teardown when done
+bash scripts/deploy_edge.sh --destroy
+```
+
+See `edge_component/README.md` for the sensor source interface and `infrastructure/edge/README.md` for CloudWatch metric configuration per formulation.
 
 ## Benchmark Results
 
@@ -154,16 +179,20 @@ predictive-maintenance/
 │   ├── survival/               # Cox PH, Weibull AFT, Random Survival Forest
 │   ├── deployment/             # Batch inference + SageMaker handlers
 │   └── remote/                 # SageMaker Training Job submission
+├── edge_component/             # Greengrass edge inference component
+│   ├── README.md               # Usage + custom sensor source guide
+│   ├── main.py                 # Inference loop (pluggable sensor sources)
+│   ├── sensor_sources/         # SensorSource ABC + CsvReplaySource
+│   ├── recipe.yaml             # Greengrass component recipe
+│   └── gdk-config.json         # GDK build configuration
 ├── sagemaker_container/        # Custom Docker container for endpoints
 │   ├── README.md
 │   ├── Dockerfile
 │   ├── serve.py
 │   └── inference.py
-└── infrastructure/             # CDK stack for batch scheduling
-    ├── README.md
-    ├── app.py
-    ├── batch_inference_stack.py
-    └── lambda/trigger.py
+└── infrastructure/             # CDK stacks (independent apps per deployment mode)
+    ├── batch/                  # Phase 8B: EventBridge + Lambda + SageMaker
+    └── edge/                   # Phase 8C: IoT Core + Greengrass + EC2
 ```
 
 ## The `pdm/` Library

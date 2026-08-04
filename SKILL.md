@@ -1,6 +1,6 @@
 ---
 name: predictive-maintenance
-description: "End-to-end Predictive Maintenance: explores raw data in S3, builds a feature engineering pipeline, trains an AutoML model (RUL regression, failure classification, multi-label classification, or survival analysis), and deploys as a real-time endpoint or daily batch inference job. Use when asked to build a failure prediction model, predict equipment failures, train on IoT sensor data, or estimate remaining useful life."
+description: "End-to-end Predictive Maintenance: explores raw data in S3, builds a feature engineering pipeline, trains an AutoML model (RUL regression, failure classification, multi-label classification, or survival analysis), and deploys as a real-time endpoint, daily batch inference job, or edge device via AWS IoT Greengrass. Use when asked to build a failure prediction model, predict equipment failures, train on IoT sensor data, or estimate remaining useful life."
 compatibility: Requires Python 3.11+, uv, boto3, pyarrow, pandas, numpy, scikit-learn, autogluon.tabular
 ---
 
@@ -43,12 +43,18 @@ Use this skill when the user:
 │   ├── inference.py             # Legacy handlers (still works for AutoGluon-only models)
 │   └── requirements.txt         # Reference only (deps baked in Dockerfile)
 ├── infrastructure/
-│   ├── app.py                   # CDK entry point
-│   ├── batch_inference_stack.py # Stack: EventBridge + Lambda + SageMaker roles
-│   ├── lambda/trigger.py        # Lambda handler (creates Processing Job)
-│   ├── cdk.json                 # Configurable context variables
-│   ├── requirements.txt         # CDK dependencies
-│   └── README.md                # Deployment instructions
+│   ├── README.md                    # Top-level: explains layout
+│   ├── batch/                       # Phase 8B: Daily batch inference
+│   │   ├── app.py
+│   │   ├── batch_inference_stack.py
+│   │   ├── lambda/trigger.py
+│   │   ├── cdk.json
+│   │   └── requirements.txt
+│   └── edge/                        # Phase 8C: Edge deployment
+│       ├── app.py
+│       ├── edge_deployment_stack.py
+│       ├── cdk.json
+│       └── requirements.txt
 └── pdm/                         # Standalone PdM library
     ├── __init__.py                  # Public API: all 4 model classes + DatasetMeta
     ├── base.py                      # PDMModel ABC, TrainResult, PredictionResult
@@ -95,6 +101,17 @@ Use this skill when the user:
         ├── train_multilabel.py      # Container entry script (multi-label classification)
         └── parallel.py              # Dispatch N experiments, monitor progress, compare
 ```
+
+## Working Directory Rules
+
+`<SKILL_DIR>` (the directory containing this SKILL.md) is **read-only**. Never write files, run builds, download data, or create virtual environments inside it. It is a library — treat it like a dependency.
+
+All work happens in the **user's project directory** (the current working directory when the skill is invoked). Phase 1's `setup.sh` copies the necessary files from `<SKILL_DIR>` into the project directory. After setup:
+- Run `uv run`, `pytest`, `gdk component build` etc. from the **project directory**
+- Download benchmark data to the **project directory** (e.g., `./benchmark_data/`)
+- Trained models, experiments, and artifacts all live in the **project directory**
+
+---
 
 ## Execution Log (`log.md`)
 
@@ -152,7 +169,7 @@ Each phase produces specific output files. **Skip any phase whose output files a
 | 5. Experimentation | `./<model_type>/experiments.md` updated | experiments complete |
 | 6. Post-Training Plan & Save | `./post_training_plan.md`, artifacts on S3 | User declines or confirms |
 | 7. Example Inference | `./data/example_predictions.csv` | User declines or file exists |
-| 8. Deploy to SageMaker | Endpoint and/or batch job | User declines or endpoint already InService |
+| 8. Deploy | Endpoint, batch job, and/or edge device | User declines or already deployed |
 | 9. Documentation | `./README.md` | File exists |
 
 **Path A uses Phases 2→3→4+. Path B uses Phase 2B→4+ (skips 2 and 3).**
@@ -366,7 +383,8 @@ Proposed inference date: [LAST_TELEMETRY_DATE] (the last day with telemetry data
 A) **Real-time endpoint** — SageMaker endpoint for prediction-by-prediction API calls
 B) **Batch inference** — daily scheduled job processing yesterday's telemetry (EventBridge + Lambda + SageMaker Processing Job)
 C) **Both** — endpoint + daily batch
-D) **No** — do not deploy
+D) **Edge deployment** — Greengrass component on IoT device (low-latency, offline-capable, single-device monitoring)
+E) **No** — do not deploy
 
 [Answer]:
 ```
@@ -455,17 +473,21 @@ For anomaly detection models, include `anomaly_score`, `is_anomaly`, and `top_an
 
 ---
 
-## Phase 8: Deploy to SageMaker
+## Phase 8: Deploy
 
-**Skip this phase** if the user answered "No" to deployment in the post-training plan.
+**Skip this phase** if the user answered "No" (option E) to deployment in the post-training plan.
 
-**Read [references/deployment.md](references/deployment.md) for full guidelines** — covers endpoint deployment, batch inference, and CDK infrastructure.
+**Read [references/deployment.md](references/deployment.md) for full guidelines** — covers endpoint deployment (8A), batch inference (8B), edge deployment via Greengrass (8C), and CDK infrastructure.
 
 Execute the deployment mode(s) chosen by the user. Do NOT deploy without the explicit confirmation already obtained in Phase 6.
 
 **Phase 8A** — Custom container → ECR → SageMaker endpoint (Steps: verify versions, build/push, package model.tar.gz, test locally, deploy, verify).
 
-**Phase 8B** — `batch_inference.py` using `pdm.deployment.batch` → SageMaker Processing Job triggered daily by EventBridge + Lambda (CDK in `infrastructure/`). Key: use `predict_proba()` ONLY for speed, `ml.m5.2xlarge` for multi-label models. For anomaly detection, generate `batch_inference_anomaly.py` using Isolation Forest scoring with z-score feature explanations (see deployment reference § 8B.3).
+**Phase 8B** — `batch_inference.py` using `pdm.deployment.batch` → SageMaker Processing Job triggered daily by EventBridge + Lambda (CDK in `infrastructure/batch/`). Key: use `predict_proba()` ONLY for speed, `ml.m5.2xlarge` for multi-label models. For anomaly detection, generate `batch_inference_anomaly.py` using Isolation Forest scoring with z-score feature explanations (see deployment reference § 8B.3).
+
+**Phase 8C** — Edge deployment via AWS IoT Greengrass. Deploys the trained model to an edge device (EC2 simulated or physical) as a Greengrass component. The model runs inference locally on sensor data and publishes predictions to IoT Core via MQTT. See deployment reference § 8C for full steps.
+
+**After edge deployment, remind the user:** *"The EC2 edge device incurs ongoing charges. Run `bash scripts/deploy_edge.sh --destroy` when testing is complete."*
 
 ---
 
@@ -502,12 +524,24 @@ Write `./README.md` for both domain experts and developers. Gather information f
 ├── deploy_endpoint.py            # Phase 8A: SageMaker endpoint deployment
 ├── batch_inference.py            # Phase 8B: Daily batch predictions (fault prediction)
 ├── batch_inference_anomaly.py    # Phase 8B: Daily anomaly detection batch inference
-├── infrastructure/               # Phase 8B: CDK app for EventBridge + Lambda + Processing Job
-│   ├── app.py
-│   ├── batch_inference_stack.py
-│   ├── lambda/trigger.py
-│   ├── cdk.json
-│   └── requirements.txt
+├── edge_component/               # Phase 8C: Greengrass edge inference component
+│   ├── main.py                   # Inference loop (pluggable sensor sources)
+│   ├── sensor_sources/           # SensorSource ABC + CsvReplaySource
+│   ├── recipe.yaml               # Greengrass component recipe
+│   ├── gdk-config.json           # GDK build configuration
+│   └── requirements.txt          # Edge dependencies
+├── infrastructure/
+│   ├── batch/                    # Phase 8B: CDK app for EventBridge + Lambda + Processing Job
+│   │   ├── app.py
+│   │   ├── batch_inference_stack.py
+│   │   ├── lambda/trigger.py
+│   │   ├── cdk.json
+│   │   └── requirements.txt
+│   └── edge/                     # Phase 8C: CDK app for IoT Core + Greengrass + EC2
+│       ├── app.py
+│       ├── edge_deployment_stack.py
+│       ├── cdk.json
+│       └── requirements.txt
 ├── pdm/
 │   ├── __init__.py
 │   ├── data/                     # Data loading & exploration submodule

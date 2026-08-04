@@ -1,0 +1,10 @@
+# PdM edge inference dependencies
+# Core inference (same as pdm library minimum)
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3
+joblib>=1.3
+lifelines>=0.29.0
+
+# Greengrass IPC SDK (provides awsiot.greengrasscoreipc.clientv2)
+awsiotsdk>=1.21

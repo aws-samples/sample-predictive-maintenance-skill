@@ -349,15 +349,15 @@ uv run python -u batch_inference.py
 
 **Architecture:** `EventBridge (daily cron) → Lambda → SageMaker Processing Job → S3 predictions`
 
-1. Copy infrastructure: `cp -r <SKILL_DIR>/infrastructure ./infrastructure`
-2. Configure `infrastructure/cdk.json` (input_bucket, ecr_image_uri, model_s3_uri, schedule)
+1. Copy infrastructure: `cp -r <SKILL_DIR>/infrastructure/batch ./infrastructure/batch`
+2. Configure `infrastructure/batch/cdk.json` (input_bucket, ecr_image_uri, model_s3_uri, schedule)
 3. Upload batch code to S3:
    ```bash
    aws s3 sync ./pdm/ s3://${OUTPUT_BUCKET}/batch-code/pdm/
    aws s3 cp batch_inference.py s3://${OUTPUT_BUCKET}/batch-code/
    aws s3 cp fault_prediction/baseline/runtime.py s3://${OUTPUT_BUCKET}/batch-code/fault_prediction/baseline/runtime.py
    ```
-4. Deploy: `cd infrastructure/ && pip install -r requirements.txt && cdk deploy`
+4. Deploy: `cd infrastructure/batch/ && pip install -r requirements.txt && cdk deploy`
 5. Test: `aws lambda invoke --function-name pdm-batch-trigger /dev/stdout`
 
 ### Batch Inference Key Details
@@ -385,3 +385,118 @@ uv run python -u batch_inference.py
 | CSV parsing error in container | Input has embedded newlines — clean data or use JSON Lines format |
 | Processing Job OOM (`use an instance type with more memory`) | Model + telemetry exceeds 16GB — use `ml.m5.2xlarge` (32GB) |
 | Processing Job `ModuleNotFoundError: pdm` | Code not uploaded to S3 — re-run `aws s3 sync ./pdm/ s3://<output-bucket>/batch-code/pdm/` |
+
+---
+
+## Phase 8C: Edge Deployment (IoT Greengrass)
+
+Deploy the trained model to an edge device as a Greengrass component. The model runs inference locally on sensor data and publishes predictions to AWS IoT Core via MQTT.
+
+### When to Use
+
+- Low-latency on-device inference (predictions in milliseconds, not network-dependent)
+- Offline-capable monitoring (device continues predicting without cloud connectivity)
+- Single-device or small-fleet scenarios
+- Bandwidth-constrained environments (only predictions sent to cloud, not raw sensor data)
+- Real-time alerting on the device itself
+
+### Prerequisites
+
+1. **AWS CLI** configured with appropriate credentials
+2. **CDK CLI** installed (`npm install -g aws-cdk`) and bootstrapped (`cdk bootstrap`)
+3. **GDK CLI** installed: `pip install git+https://github.com/aws-greengrass/aws-greengrass-gdk-cli.git@v1.6.2`
+4. A trained model directory with `metadata.json`
+
+### Step 8C.1: Deploy Infrastructure
+
+Deploy the 3 CDK stacks that provision networking, IoT resources, and the demo edge device:
+
+```bash
+cd infrastructure/edge/
+pip install -r requirements.txt
+cdk deploy --all -c account=$(aws sts get-caller-identity --query Account --output text) \
+                 -c region=${AWS_REGION:-eu-central-1}
+```
+
+This deploys 3 independent stacks:
+
+| Stack | Resources | Lifecycle |
+|-------|-----------|-----------|
+| `PdmEdgeNetworkStack` | VPC, VPC endpoints (SSM, IoT, Greengrass), security groups | Persistent network |
+| `PdmEdgeResourcesStack` | IoT Policy, TES Role, S3 bucket, IoT Rules, Dashboard | Persistent IoT identity |
+| `PdmEdgeDemoDeviceStack` | EC2 instance (t3.small) with Greengrass auto-provisioning | Optional demo device |
+
+To destroy only the demo device (stop EC2 costs while keeping IoT resources):
+```bash
+cdk destroy PdmEdgeDemoDeviceStack
+```
+
+**Configure the metric** for your formulation before deploying (in `infrastructure/edge/cdk.json`):
+
+| Formulation | `metric_field` | `metric_name` |
+|-------------|---------------|---------------|
+| Classification | `machine_failure_proba` | `FailureProbability` |
+| Anomaly Detection | `anomaly_score` | `AnomalyScore` |
+| RUL | `RUL_pred` | `PredictedRUL` |
+
+### Step 8C.2: Deploy Component
+
+Use the deployment script to build, publish, and deploy the Greengrass component:
+
+```bash
+bash scripts/deploy_edge.sh --model-dir ./<model_type>/baseline/model --data-input ./data/raw_test.csv
+```
+
+The script:
+1. Copies the model directory and `pdm/` library into the edge component
+2. Extracts single-device sensor data for replay
+3. Builds and publishes the Greengrass component via GDK
+4. Creates a Greengrass deployment targeting the device
+5. Waits for deployment to succeed
+
+### Step 8C.3: Verify
+
+1. **IoT Core MQTT test client** — subscribe to `things/<thing-name>/pdm/predictions`; predictions arrive at the configured interval
+2. **CloudWatch Dashboard** (if enabled) — navigate to the dashboard URL from CDK outputs
+3. **Device logs** — connect via SSM Session Manager:
+   ```bash
+   sudo tail -f /greengrass/v2/logs/com.example.PdmEdgeInference.log
+   ```
+
+### Step 8C.4: Cleanup
+
+```bash
+bash scripts/deploy_edge.sh --destroy
+```
+
+This removes the Greengrass deployment, destroys the CDK stack (EC2, IoT resources, S3), and cleans local artifacts. **Run this after testing to avoid ongoing EC2 charges.**
+
+### Edge Deployment Key Details
+
+- **Model format**: Same as cloud (full model directory copied as-is; no export step)
+- **Inference library**: Full `pdm` library runs on the edge device
+- **Sensor source**: Pluggable `SensorSource` interface — ships with `CsvReplaySource` for demos; implement custom sources for OPC-UA, MQTT, Modbus, etc. (see `edge_component/README.md`)
+- **Predictions**: Published to `things/{thing-name}/pdm/predictions` via IoT Core MQTT
+- **Instance type**: `t3.small` (2GB RAM) — sufficient for all tabular PdM models
+- **Component artifact limit**: 500MB uncompressed (fine for AutoGluon + data; for very large models use S3FileDownloader component)
+- **Inference interval**: Configurable at deployment time (default 60s)
+
+### ⚠️ Gotchas (Edge)
+
+- **`interpolateComponentConfiguration`** must be `true` in the Greengrass Nucleus config for `{iot:thingName}` to resolve in topic paths. The CDK stack handles this automatically via `--init-config`.
+- **GDK artifact path**: The recipe uses `{artifacts:decompressedPath}/pdm-inference/` — this matches the GDK zip structure. Do not rename `zip_name` in `gdk-config.json` without updating the recipe.
+- **MQTT rate limit**: 100 TPS per device (fine for PdM intervals of 30s+). For high-frequency use cases, aggregate on-device.
+- **First deployment**: The EC2 instance needs 3-5 minutes after CDK deploy for UserData to complete Greengrass provisioning. The deploy script's deployment step will fail if run too early — wait for the instance to report "Healthy" in IoT Core console.
+- **pip install time**: The `install` lifecycle installs AutoGluon + dependencies (~2-3 minutes on first deployment). Subsequent deployments reuse the venv if unchanged.
+
+### Error Recovery
+
+| Failure | Recovery |
+|---------|----------|
+| `deploy_edge.sh` fails on "CDK stack not deployed" | Run `cd infrastructure/edge && cdk deploy --all` first |
+| Greengrass deployment status FAILED | Check device logs: `sudo tail -50 /greengrass/v2/logs/com.example.PdmEdgeInference.log` |
+| Component `ERRORED` — ModuleNotFoundError | pip install failed in `install` lifecycle; check `/greengrass/v2/logs/greengrass.log` for venv errors |
+| No predictions arriving in IoT Core | Verify component is RUNNING: `sudo /greengrass/v2/bin/greengrass-cli component list`; check IPC access control in recipe |
+| `{iot:thingName}` appears literally in topic | Nucleus `interpolateComponentConfiguration` not set — redeploy the CDK stack |
+| Component artifact too large (>500MB) | Remove unnecessary files from model dir; or use S3FileDownloader component for model delivery |
+| EC2 instance unreachable via SSM | Check instance is in a subnet with internet access or SSM VPC endpoints; verify instance role has `AmazonSSMManagedInstanceCore` |
