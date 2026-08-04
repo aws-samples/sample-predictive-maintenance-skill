@@ -10,8 +10,8 @@
         }
       },
       "publish": {
-        "bucket": "greengrass-artifacts",
-        "region": "us-east-1"
+        "bucket": "<S3 BUCKET PREFIX>",
+        "region": "<REGION>"
       }
     }
   },
