@@ -10,7 +10,7 @@
         }
       },
       "publish": {
-        "bucket": "pdmedgeresourcesstack-artifactsbucket2aac5544-vnbbowkm5odh",
+        "bucket": "greengrass-artifacts",
         "region": "us-east-1"
       }
     }
