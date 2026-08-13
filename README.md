@@ -2,6 +2,8 @@
 
 An AI agent skill that generates complete predictive maintenance (PdM) models end-to-end: from raw IoT sensor data in S3 to a deployed SageMaker inference endpoint, daily batch job, or edge device via AWS IoT Greengrass.
 
+> 📝 **Blog post:** [Building Predictive Maintenance Models from raw IoT data with Kiro and Amazon SageMaker](https://builder.aws.com/content/3DkXbcQxyPux7nYBREEBUW3W08F/building-predictive-maintenance-models-from-raw-iot-data-with-kiro-and-amazon-sagemaker) — a walkthrough of this project.
+
 ## What It Does
 
 Give Kiro access to your S3 data and ask it to build a failure prediction model. The skill guides the agent through a nine-phase workflow:
@@ -49,6 +51,12 @@ bash scripts/deploy_edge.sh --destroy
 ```
 
 See `edge_component/README.md` for the sensor source interface and `infrastructure/edge/README.md` for CloudWatch metric configuration per formulation.
+
+## Architecture
+
+The three deployment modes at a glance — daily batch inference (EventBridge → Lambda → SageMaker Processing Job), a real-time SageMaker endpoint, and edge inference on AWS IoT Greengrass publishing to IoT Core:
+
+![Predictive maintenance deployment architectures: batch, real-time endpoint, and edge/Greengrass](docs/architecture-overview.png)
 
 ## Benchmark Results
 
@@ -157,6 +165,8 @@ The skill activates automatically based on keywords like "predictive maintenance
 predictive-maintenance/
 ├── SKILL.md                    # Agent instructions (9-phase workflow)
 ├── README.md                   # This file
+├── docs/                       # Diagrams & static assets for docs
+│   └── architecture-overview.png
 ├── references/                 # Detailed phase guides (loaded on demand)
 │   ├── data-exploration.md
 │   ├── benchmark-datasets.md
