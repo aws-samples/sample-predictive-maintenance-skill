@@ -1,4 +1,4 @@
-# predictive-maintenance — Kiro Skill
+# Predictive Maintenance Skill
 
 An AI agent skill that generates complete predictive maintenance (PdM) models end-to-end: from raw IoT sensor data in S3 to a deployed SageMaker inference endpoint, daily batch job, or edge device via AWS IoT Greengrass.
 
@@ -6,7 +6,7 @@ An AI agent skill that generates complete predictive maintenance (PdM) models en
 
 ## What It Does
 
-Give Kiro access to your S3 data and ask it to build a failure prediction model. The skill guides the agent through a nine-phase workflow:
+Give your AI Coding Assistant access to your S3 data and ask it to build a failure prediction model. The skill guides the agent through a nine-phase workflow:
 
 1. **Setup** — project scaffolding, dependencies
 2. **Data Exploration** — discover schemas, joins, formulation strategy
@@ -134,7 +134,7 @@ Without this skill installed, the experimentation phase still works — the agen
 
 - **Python 3.11+** with `uv` (or pip)
 - **AWS credentials** with S3 read access + SageMaker (for deployment)
-- **Kiro CLI** or **Kiro IDE**
+- **Kiro CLI**, or **Kiro IDE**, or **Claude Code**
 
 Key Python dependencies (installed automatically by `scripts/setup.sh`):
 - `autogluon.tabular` — AutoML training
@@ -145,7 +145,7 @@ Key Python dependencies (installed automatically by `scripts/setup.sh`):
 
 ## Usage
 
-Start Kiro and say:
+Start your AI Coding Assistant and say:
 
 ```
 Build a predictive maintenance model from my S3 data in s3://my-bucket/
@@ -207,7 +207,7 @@ predictive-maintenance/
 
 ## The `pdm/` Library
 
-The `pdm/` directory is a standalone Python library usable independently of the Kiro skill. It provides:
+The `pdm/` directory is a standalone Python library usable independently of the AI Coding Assistant skill. It provides:
 
 - **5 model classes**: `AnomalyDetector`, `TemporalAnomalyDetector`, `SpectralResidualDetector`, `FailureClassifier`, `RULPredictor`, `SurvivalPredictor`
 - **CLI tools** for training, evaluation, and inference
@@ -216,9 +216,9 @@ The `pdm/` directory is a standalone Python library usable independently of the 
 
 See [`pdm/README.md`](pdm/README.md) for full API documentation and usage.
 
-## How It Works with Kiro
+## How It Works
 
-Kiro loads skills through **progressive disclosure**:
+Your AI Coding Assistant loads skills through **progressive disclosure**:
 
 1. At startup, only the `name` and `description` from `SKILL.md` frontmatter are loaded (minimal context cost)
 2. When your request matches the skill description, the full `SKILL.md` instructions load
@@ -230,7 +230,7 @@ This means the skill has near-zero overhead when not activated.
 
 This skill follows the open [Agent Skills](https://agentskills.io) standard and works with:
 
-- **Kiro CLI** / **Kiro IDE** (primary target)
+- **Kiro CLI**, **Kiro IDE**, or **Claude Code**
 - Any agent that supports the Agent Skills `SKILL.md` format
 
 ## Security
