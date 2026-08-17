@@ -11,6 +11,7 @@ Imports are lazy: model classes are loaded on first access to avoid requiring
 all dependencies (autogluon, lifelines, etc.) when only one formulation is used.
 """
 
+from pdm import solution_user_agent  # noqa: F401 - registers the AWS Solutions user-agent hook; import first
 from pdm.base import PDMModel, TrainResult, PredictionResult
 from pdm.data.dataset_schema import DatasetMeta
 

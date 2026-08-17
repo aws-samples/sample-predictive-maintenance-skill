@@ -19,6 +19,8 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from solution import SOLUTION_USER_AGENT
+
 
 class BatchInferenceStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
@@ -136,6 +138,7 @@ class BatchInferenceStack(Stack):
                 "SAGEMAKER_ROLE_ARN": sagemaker_role.role_arn,
                 "INSTANCE_TYPE": instance_type,
                 "LOOKBACK_DAYS": str(lookback_days),
+                "USER_AGENT_STRING": SOLUTION_USER_AGENT,
             },
         )
 

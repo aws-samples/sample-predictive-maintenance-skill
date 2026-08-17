@@ -35,6 +35,8 @@ experiments.json format (RUL/classification — shared data, different hyperpara
     {"name": "window20", "window-size": 20, "backend": "optuna", "n-trials": 100}
 ]
 """
+import pdm.solution_user_agent  # noqa: F401 - registers the AWS Solutions user-agent hook; import first
+
 import argparse
 import json
 import os

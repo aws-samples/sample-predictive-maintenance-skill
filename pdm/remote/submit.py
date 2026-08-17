@@ -4,6 +4,8 @@ Usage:
     uv run python pdm/remote/submit.py --train data/raw_train.csv --test data/raw_test.csv \
         --formulation rul --window-size 30 --optuna --n-trials 100
 """
+import pdm.solution_user_agent  # noqa: F401 - registers the AWS Solutions user-agent hook; import first
+
 import argparse
 import json
 import os

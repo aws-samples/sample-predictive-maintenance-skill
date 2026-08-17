@@ -15,6 +15,8 @@ Environment variables (set by CDK stack):
 - INSTANCE_TYPE: ML instance type (default: ml.m5.xlarge)
 - LOOKBACK_DAYS: Telemetry window size (default: 7)
 """
+import solution_user_agent  # noqa: F401 - registers the AWS Solutions user-agent hook; import first
+
 import os
 import time
 import boto3
@@ -52,6 +54,9 @@ def handler(event, context):
             "OUTPUT_BUCKET": output_bucket,
             "MODEL_S3_URI": model_s3_uri,
             "LOOKBACK_DAYS": lookback_days,
+            # Forwarded from this Lambda's own env (set by the CDK stack from the
+            # single SOLUTION_USER_AGENT declaration) into the container.
+            "USER_AGENT_STRING": os.environ.get("USER_AGENT_STRING", ""),
         },
         ProcessingInputs=[
             {
