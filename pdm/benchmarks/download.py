@@ -22,7 +22,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-BENCHMARKS = ["cmapss", "ai4i", "smap", "hdfail"]
+BENCHMARKS = ["cmapss", "ai4i", "smap", "hdfail", "shell_compressor"]
 
 # Download URLs and extraction logic per dataset
 DATASET_INFO = {
@@ -55,6 +55,12 @@ DATASET_INFO = {
         "description": "Backblaze Hard Drive Failure (hdfail from frailtySurv) — 52K drives, survival analysis",
         "format": "tar.gz",
         "files_needed": ["hdfail.rda"],
+    },
+    "shell_compressor": {
+        "url": "https://github.com/aihack20/shell_challenge/releases/download/data/clean_dataset.zip",
+        "description": "Shell Compressor Analytics (AIHack 2020) — low-pressure gas compressor SCADA, classification + anomaly detection",
+        "format": "zip",
+        "files_needed": ["clean_dataset.csv"],
     },
 }
 
@@ -281,6 +287,43 @@ def download_hdfail(base_dir: Path) -> Path:
     return output_dir
 
 
+def download_shell_compressor(base_dir: Path) -> Path:
+    """Download and prepare the Shell Compressor Analytics dataset (AIHack 2020).
+
+    Downloads the cleaned-dataset release zip from the challenge GitHub repo,
+    extracts clean_dataset.csv, and runs the loader to produce train/test CSVs
+    with a fault-imminent machine_failure label (also usable as anomaly-detection
+    ground truth).
+    """
+    output_dir = base_dir / "shell_compressor"
+    if _is_ready(output_dir):
+        print(f"  ✓ shell_compressor already exists at {output_dir}")
+        return output_dir
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    info = DATASET_INFO["shell_compressor"]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = Path(tmpdir) / "clean_dataset.zip"
+        download_file(info["url"], zip_path, "Shell Compressor Analytics (clean dataset)")
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(tmpdir)
+
+        candidates = list(Path(tmpdir).rglob("clean_dataset.csv"))
+        if not candidates:
+            candidates = list(Path(tmpdir).rglob("*.csv"))
+        if not candidates:
+            raise RuntimeError("No clean_dataset.csv found in Shell Compressor archive")
+        shutil.copy2(candidates[0], output_dir / "clean_dataset.csv")
+
+    # Run the loader to produce raw_train.csv, raw_test.csv
+    from pdm.benchmarks.loaders import load_shell_compressor
+    load_shell_compressor(output_dir, output_dir=output_dir)
+    print(f"  ✓ shell_compressor prepared at {output_dir}")
+    return output_dir
+
+
 def _is_ready(output_dir: Path) -> bool:
     """Check if a benchmark dataset is already prepared."""
     return (output_dir / "raw_train.csv").exists() and (output_dir / "raw_test.csv").exists()
@@ -300,6 +343,7 @@ def ensure_available(base_dir: Path, name: str) -> Path:
         "battery": download_battery,
         "smap": download_smap,
         "hdfail": download_hdfail,
+        "shell_compressor": download_shell_compressor,
     }
     if name not in downloaders:
         raise ValueError(f"Unknown benchmark: {name}. Available: {list(downloaders.keys())}")

@@ -1,0 +1,25 @@
+{
+  "experiment": "01_temporal_pca",
+  "window_size": 6,
+  "n_components_requested": 30,
+  "pca_components": 30,
+  "pca_explained_variance": 0.856992244720459,
+  "threshold": 37.64984952387338,
+  "auroc": 0.8756,
+  "auprc": 0.0133,
+  "baseline_auroc": 0.8662,
+  "beats_baseline_auroc": true,
+  "point_adjust": {
+    "precision": 0.0222,
+    "recall": 0.6667,
+    "f1": 0.043,
+    "tp": 48,
+    "fp": 2111,
+    "fn": 24
+  },
+  "raw": {
+    "precision": 0.0122,
+    "recall": 0.3611,
+    "f1": 0.0235
+  }
+}
