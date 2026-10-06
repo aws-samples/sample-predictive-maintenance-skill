@@ -630,6 +630,129 @@ def load_hdfail(data_dir: Path, output_dir: Path = Path("./data")) -> DatasetMet
 
 
 # ---------------------------------------------------------------------------
+# Shell Compressor Analytics (AIHack 2020)
+# ---------------------------------------------------------------------------
+
+# Original (raw-timeline) indices of the 9 identified anomalies. Each marks a
+# datapoint near where abnormal behaviour was observed that caused an equipment
+# shutdown. Source: anomaly_indexes.txt in the challenge repository.
+SHELL_ANOMALY_INDICES = [10634, 36136, 57280, 57618, 60545, 63144, 118665, 128524, 131118]
+
+
+def _is_shell_compressor(data_dir: Path) -> bool:
+    data_dir = Path(data_dir)
+    return (data_dir / "clean_dataset.csv").exists()
+
+
+def load_shell_compressor(
+    data_dir: Path,
+    output_dir: Path = Path("./data"),
+    horizon: int = 24,
+    test_frac: float = 0.2,
+) -> DatasetMeta:
+    """Load the Shell Compressor Analytics dataset (AIHack 2020).
+
+    Multivariate 10-minute SCADA from a low-pressure gas compressor (LPC):
+    ~106k rows x 362 sensor features (temperature, pressure, flow rate, speed,
+    level, ...). Timestamps were stripped but row ordering is preserved; the
+    ``original_index`` column maps each row back to the raw timeline.
+
+    Nine anomaly events (``SHELL_ANOMALY_INDICES``) mark datapoints near trips/
+    shutdowns. We construct a binary ``machine_failure`` label by flagging the
+    ``horizon`` raw-timeline steps leading up to (and including) each anomaly
+    index — a fault-imminent / early-warning window. The same label doubles as
+    the evaluation ground truth for unsupervised anomaly detection: the AD
+    trainer excludes ``machine_failure`` from features and trains on normal-only
+    rows, and the AD evaluator scores AUROC/F1 against it.
+
+    ``original_index`` is dropped from the written features because it is a
+    monotonic proxy for time and would leak the label.
+
+    Split is temporal (``split_strategy="temporal"``): the first
+    ``1 - test_frac`` of rows (by preserved order) are train, the remainder test.
+
+    Args:
+        data_dir: folder containing ``clean_dataset.csv``.
+        output_dir: where to write the common-format outputs.
+        horizon: number of raw 10-minute steps before each anomaly index to
+            label positive (default 24 = 4 hours).
+        test_frac: fraction of (ordered) rows held out as the test split.
+    """
+    data_dir, output_dir = Path(data_dir), Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    csv_path = data_dir / "clean_dataset.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            f"clean_dataset.csv not found in {data_dir}. "
+            "Download with: uv run python -m pdm.benchmarks.download <base_dir> shell_compressor"
+        )
+
+    df = pd.read_csv(csv_path)
+    if "original_index" not in df.columns:
+        raise ValueError(
+            "Expected an 'original_index' column in clean_dataset.csv "
+            f"(found: {list(df.columns)[:5]}...)"
+        )
+
+    # Build the fault-imminent label on the raw timeline. Rows removed during
+    # cleaning (shutdown periods) simply fall out of the window.
+    oi = df["original_index"].to_numpy()
+    label = np.zeros(len(df), dtype=int)
+    for a in SHELL_ANOMALY_INDICES:
+        label[(oi > a - horizon) & (oi <= a)] = 1
+    df["machine_failure"] = label
+
+    # Features = everything except the index proxy and the target.
+    feature_cols = [c for c in df.columns if c not in ("original_index", "machine_failure")]
+    out = df[feature_cols + ["machine_failure"]]
+
+    # Temporal split — preserve row ordering (data is a single ordered series).
+    split = int(len(out) * (1 - test_frac))
+    train_df = out.iloc[:split].reset_index(drop=True)
+    test_df = out.iloc[split:].reset_index(drop=True)
+
+    train_df.to_csv(output_dir / "raw_train.csv", index=False)
+    test_df.to_csv(output_dir / "raw_test.csv", index=False)
+
+    meta = DatasetMeta(
+        name="Shell Compressor Analytics",
+        source="benchmark",
+        formulation="classification",
+        target_columns=["machine_failure"],
+        feature_columns=feature_cols,
+        time_column=None,
+        split_strategy="temporal",
+        n_train=len(train_df),
+        n_test=len(test_df),
+        n_features=len(feature_cols),
+        evaluation_protocol={
+            "metric": "f1",
+            "secondary": "precision,recall,auroc",
+            "horizon_steps": horizon,
+            "horizon_desc": f"{horizon} x 10min = {horizon * 10 / 60:.0f}h fault-imminent window",
+            "also_supports": "anomaly_detection (unsupervised; machine_failure used as eval ground truth)",
+        },
+        reference={
+            "title": "Compressor Analytics Challenge (AIHack 2020)",
+            "source": "Shell / aihack20",
+            "url": "https://github.com/aihack20/shell_challenge",
+            "asset": "low-pressure gas compressor (LPC)",
+            "anomaly_indices": SHELL_ANOMALY_INDICES,
+            "notes": "10-min SCADA; timestamps stripped, order preserved; "
+                     "9 anomalies near shutdowns, definition acknowledged as approximate.",
+        },
+        label_positive_rates={
+            "train": round(float(train_df["machine_failure"].mean()), 6),
+            "test": round(float(test_df["machine_failure"].mean()), 6),
+        },
+        data_path={"train": str(output_dir / "raw_train.csv"), "test": str(output_dir / "raw_test.csv")},
+    )
+    meta.save(output_dir / "dataset_meta.json")
+    return meta
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -642,6 +765,7 @@ BENCHMARK_REGISTRY = {
     "ncmapss": {"detector": _is_ncmapss, "loader": load_ncmapss},
     "smap": {"detector": _is_smap, "loader": load_smap},
     "hdfail": {"detector": _is_hdfail, "loader": load_hdfail},
+    "shell_compressor": {"detector": _is_shell_compressor, "loader": load_shell_compressor},
 }
 
 

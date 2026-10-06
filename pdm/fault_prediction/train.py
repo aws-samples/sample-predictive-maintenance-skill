@@ -82,13 +82,17 @@ def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time
     train_label_df = train_df[feature_cols + [label]].copy()
     test_label_df = test_df[feature_cols + [label]]
 
+    sample_weight_col = None
     if rebalance and pos_rate < 0.5:
         weights = train_label_df[label].map({1: 1.0 / max(pos_rate, 0.01), 0: 1.0 / (1 - pos_rate)})
+        train_label_df = train_label_df.copy()
         train_label_df["sample_weight"] = weights / weights.mean()
+        sample_weight_col = "sample_weight"
 
     predictor = TabularPredictor(
         label=label, eval_metric="f1", problem_type="binary",
         path=str(output_dir / "ag_model" / label.replace(" ", "_")),
+        sample_weight=sample_weight_col,
         verbosity=0,
     ).fit(train_data=train_label_df, time_limit=time_limit, presets=presets)
 
@@ -210,25 +214,37 @@ def train_single(train_df, test_df, formulation, args):
 
     print(f"  Target: {target_col} | Metric: {eval_metric}")
 
+    sample_weight_col = None
     if args.rebalance and formulation == "classification":
         pos_rate = train_df[target_col].mean()
         if pos_rate < 0.5:
             weights = train_df[target_col].map({1: 1.0 / max(pos_rate, 0.01), 0: 1.0 / (1 - pos_rate)})
             train_df = train_df.copy()
             train_df["sample_weight"] = weights / weights.mean()
+            sample_weight_col = "sample_weight"
             print(f"  Rebalance: applied inverse-frequency weights (pos_rate={pos_rate:.3%})")
 
     if args.smote and formulation == "classification":
         from imblearn.over_sampling import SMOTE
         feature_cols_smote = [c for c in train_df.columns if c != target_col and c != "sample_weight"]
+        X_smote = train_df[feature_cols_smote]
+        # SMOTE interpolates between neighbours and cannot handle NaNs; impute
+        # numeric gaps with the column median first (sensor data is often sparse).
+        num_cols = X_smote.select_dtypes(include=[np.number]).columns
+        if X_smote[num_cols].isna().any().any():
+            X_smote = X_smote.copy()
+            X_smote[num_cols] = X_smote[num_cols].fillna(X_smote[num_cols].median())
+            # any column that was entirely NaN has a NaN median → fill with 0
+            X_smote[num_cols] = X_smote[num_cols].fillna(0)
         sm = SMOTE(random_state=args.seed)
-        X_res, y_res = sm.fit_resample(train_df[feature_cols_smote], train_df[target_col])
+        X_res, y_res = sm.fit_resample(X_smote, train_df[target_col])
         train_df = pd.concat([X_res, y_res], axis=1)
         print(f"  SMOTE: oversampled minority → {len(train_df)} rows (was {len(X_res) - (y_res.sum() - train_df[target_col].sum())})")
 
     predictor = TabularPredictor(
         label=target_col, eval_metric=eval_metric, problem_type=problem_type,
         path=str(args.output / "ag_model"),
+        sample_weight=sample_weight_col,
     )
     if args.warm_start and (args.output / "ag_model").exists():
         print("  Warm-start: loading existing model and refitting...")
@@ -248,7 +264,7 @@ def train_single(train_df, test_df, formulation, args):
         print(f"  ⚠️ Low ensemble diversity: top 5 models are all {list(families)[0]} variants")
 
     importance = None
-    feature_cols = [c for c in train_df.columns if c != target_col]
+    feature_cols = [c for c in train_df.columns if c not in (target_col, "sample_weight")]
 
     if not args.skip_importance:
         importance = predictor.feature_importance(test_df, silent=True)

@@ -1,0 +1,23 @@
+{
+  "experiment": "c03_threshold",
+  "model": "fault_prediction/experiments/c02_smote/model/ag_model",
+  "auroc": 0.6652,
+  "average_precision": 0.0129,
+  "default_threshold_0.5": {
+    "f1": 0.0,
+    "positives_predicted": 0
+  },
+  "oracle_threshold_on_test": {
+    "threshold": 0.076971,
+    "f1": 0.0602,
+    "precision": 0.0656,
+    "recall": 0.0556
+  },
+  "deployable_threshold_from_train_tail": {
+    "threshold": 0.5,
+    "f1": 0.0,
+    "precision": 0.0,
+    "recall": 0.0
+  },
+  "test_positive_rate": 0.00337
+}

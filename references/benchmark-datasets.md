@@ -123,6 +123,7 @@ With the common format in place, proceed directly to Phase 4 (Baselines).
 | C-MAPSS FD001-FD004 | RUL | ✓ | `train_FD0*.txt`, `test_FD0*.txt`, `RUL_FD0*.txt` |
 | AI4I 2020 | Classification | ✓ | `ai4i2020.csv` |
 | NASA Battery | Survival | ✓ | `_battery_processed.csv`, `*.mat`, or `*Battery*.zip` |
+| Shell Compressor Analytics | Classification + Anomaly Detection | ✓ | `clean_dataset.csv` |
 | FEMTO Bearing | RUL | — | Requires custom adapter |
 | PHM08 Challenge | RUL | — | Requires custom adapter |
 
@@ -160,6 +161,33 @@ Requires `scipy` for `.mat` file parsing. Download the dataset with:
 ```
 uv run python -m pdm.benchmarks.download <base_dir> battery
 ```
+
+### Shell Compressor Analytics (energy / gas compressor)
+
+Real 10-minute SCADA from a low-pressure gas compressor (AIHack 2020). The
+cleaned release is ~106.7k rows × 362 sensor features (temperature, pressure,
+flow rate, speed, level, …) plus an `original_index` column. Download with:
+```
+uv run python -m pdm.benchmarks.download <base_dir> shell_compressor
+```
+
+- **Dual formulation from one label.** `load_shell_compressor` builds a binary
+  `machine_failure` label by flagging the `horizon` raw-timeline steps (default
+  24 = 4h) before each of the 9 known anomaly indices. The same CSVs drive both
+  the **classification** baseline (`fault_prediction/train.py`) and the
+  **anomaly-detection** baseline (`anomaly_detection/train_anomaly.py`, which
+  excludes `machine_failure` from features, trains normal-only, and evaluates
+  AUROC against it). No second adapter needed.
+- **Drop `original_index` from features.** It is a monotonic time proxy and the
+  labels sit at fixed indices, so leaving it in leaks the target. The loader
+  drops it from the written CSVs (it is used only to build the label).
+- **Severe class imbalance** (~0.17% train / ~0.34% test positive). Use
+  `--rebalance` for the classifier; judge AD by AUROC (threshold-independent)
+  rather than the default-threshold F1, which is near zero at any sane operating
+  point until the threshold is tuned (a Phase-5 experiment).
+- **No vibration channel** — the sensor set is temperature/pressure/flow/speed/
+  level only. Anomaly labels are acknowledged by the data authors as approximate
+  (points near shutdowns), so treat recall numbers as indicative.
 
 ## Phase Detection (for SKILL.md skip logic)
 

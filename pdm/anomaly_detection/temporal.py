@@ -85,9 +85,13 @@ class TemporalAnomalyDetector(PDMModel):
         self.feature_names = feature_cols
         n_features = len(feature_cols)
 
-        # Scale
+        # Scale. StandardScaler upcasts to float64; keep float32 so the flattened
+        # sliding-window matrix (n_samples x window_size*n_features) stays within
+        # memory on wide, long series. Reconstruction error does not need f64.
         self.scaler = StandardScaler()
-        train_scaled = self.scaler.fit_transform(train_df[feature_cols].fillna(0).values)
+        train_scaled = self.scaler.fit_transform(
+            train_df[feature_cols].fillna(0).values
+        ).astype(np.float32, copy=False)
 
         # Create sliding windows (flattened)
         train_windows = self._create_windows(train_scaled, window_size)
@@ -109,7 +113,9 @@ class TemporalAnomalyDetector(PDMModel):
         train_scores = self._score_array(train_scaled, window_size, smooth_window)
 
         # Score test data
-        test_scaled = self.scaler.transform(test_df[feature_cols].fillna(0).values)
+        test_scaled = self.scaler.transform(
+            test_df[feature_cols].fillna(0).values
+        ).astype(np.float32, copy=False)
         test_scores = self._score_array(test_scaled, window_size, smooth_window)
 
         # Set threshold based on contamination
@@ -164,7 +170,9 @@ class TemporalAnomalyDetector(PDMModel):
         Returns:
             PredictionResult with anomaly_score and is_anomaly columns.
         """
-        X = self.scaler.transform(features[self.feature_names].fillna(0).values)
+        X = self.scaler.transform(
+            features[self.feature_names].fillna(0).values
+        ).astype(np.float32, copy=False)
         scores = self._score_array(X, self.window_size, self.smooth_window)
 
         return PredictionResult(predictions=pd.DataFrame({
@@ -178,7 +186,9 @@ class TemporalAnomalyDetector(PDMModel):
         Returns the features with highest z-scored reconstruction error
         at each timestep.
         """
-        X = self.scaler.transform(features[self.feature_names].fillna(0).values)
+        X = self.scaler.transform(
+            features[self.feature_names].fillna(0).values
+        ).astype(np.float32, copy=False)
         n_features = len(self.feature_names)
 
         # If data is shorter than window_size, use direct feature deviation
