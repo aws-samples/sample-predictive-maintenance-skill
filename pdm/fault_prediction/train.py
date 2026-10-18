@@ -20,7 +20,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
-from sklearn.metrics import f1_score, precision_score, recall_score
+
+from pdm.fault_prediction.metrics import evaluate_binary_classifier
 
 
 def nasa_scoring(y_true, y_pred):
@@ -96,11 +97,10 @@ def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time
         verbosity=0,
     ).fit(train_data=train_label_df, time_limit=time_limit, presets=presets)
 
-    y_pred = predictor.predict(test_label_df.drop(columns=[label]))
+    X_test = test_label_df.drop(columns=[label])
+    y_pred = predictor.predict(X_test)
     y_true = test_label_df[label].values
-    f1 = f1_score(y_true, y_pred, zero_division=0)
-    prec = precision_score(y_true, y_pred, zero_division=0)
-    rec = recall_score(y_true, y_pred, zero_division=0)
+    cls_metrics = evaluate_binary_classifier(predictor, X_test, y_true, y_pred=y_pred)
 
     importance_list = None
     top_feats = []
@@ -116,8 +116,11 @@ def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time
             pass
 
     result = {
-        "test_f1": round(f1, 4), "test_precision": round(prec, 4),
-        "test_recall": round(rec, 4), "positive_rate": round(pos_rate, 5),
+        "test_f1": round(cls_metrics["f1"], 4), "test_precision": round(cls_metrics["precision"], 4),
+        "test_recall": round(cls_metrics["recall"], 4),
+        "test_roc_auc": None if cls_metrics["roc_auc"] is None else round(cls_metrics["roc_auc"], 4),
+        "test_average_precision": None if cls_metrics["average_precision"] is None else round(cls_metrics["average_precision"], 4),
+        "positive_rate": round(pos_rate, 5),
         "n_positives_train": n_pos, "best_model": predictor.model_best,
         "top_features": top_feats,
     }
@@ -151,7 +154,7 @@ def train_multilabel(train_df, test_df, args):
                 metrics["labels"][label] = result
                 if importance_list:
                     all_importance[label] = importance_list
-                status = f"F1={result['test_f1']}" if "test_f1" in result else "SKIPPED"
+                status = f"F1={result['test_f1']} ROC-AUC={result.get('test_roc_auc')} AP={result.get('test_average_precision')}" if "test_f1" in result else "SKIPPED"
                 print(f"  ✓ {label} — {status}")
                 _append_progress(label, result, args.output)
     else:
@@ -165,7 +168,7 @@ def train_multilabel(train_df, test_df, args):
             metrics["labels"][label] = result
             if importance_list:
                 all_importance[label] = importance_list
-            status = f"F1={result['test_f1']}" if "test_f1" in result else "SKIPPED"
+            status = f"F1={result['test_f1']} ROC-AUC={result.get('test_roc_auc')} AP={result.get('test_average_precision')}" if "test_f1" in result else "SKIPPED"
             print(f"  {status}")
             _append_progress(label, result, args.output)
 
@@ -176,6 +179,14 @@ def train_multilabel(train_df, test_df, args):
         metrics["median_test_f1"] = round(np.median(f1s), 4)
         metrics["labels_above_050"] = sum(1 for f in f1s if f >= 0.50)
         metrics["labels_total_scored"] = len(scored)
+        roc_aucs = [v["test_roc_auc"] for v in scored.values() if v.get("test_roc_auc") is not None]
+        avg_precisions = [v["test_average_precision"] for v in scored.values() if v.get("test_average_precision") is not None]
+        if roc_aucs:
+            metrics["mean_test_roc_auc"] = round(float(np.mean(roc_aucs)), 4)
+            metrics["median_test_roc_auc"] = round(float(np.median(roc_aucs)), 4)
+        if avg_precisions:
+            metrics["mean_test_average_precision"] = round(float(np.mean(avg_precisions)), 4)
+            metrics["median_test_average_precision"] = round(float(np.median(avg_precisions)), 4)
     if all_importance:
         metrics["feature_importance"] = all_importance
 
@@ -300,11 +311,15 @@ def train_single(train_df, test_df, formulation, args):
         print(f"NASA Score: {score:.1f} (normalized: {score/len(y_true):.2f})")
 
     if formulation == "classification":
-        y_pred = predictor.predict(test_df.drop(columns=[target_col]))
+        X_test = test_df.drop(columns=[target_col])
+        y_pred = predictor.predict(X_test)
         y_true = test_df[target_col].values
-        metrics["precision"] = float(precision_score(y_true, y_pred, zero_division=0))
-        metrics["recall"] = float(recall_score(y_true, y_pred, zero_division=0))
-        print(f"  Precision: {metrics['precision']:.4f} | Recall: {metrics['recall']:.4f}")
+        cls_metrics = evaluate_binary_classifier(predictor, X_test, y_true, y_pred=y_pred)
+        metrics.update(cls_metrics)
+        print(f"  F1: {metrics['f1']:.4f} | Precision: {metrics['precision']:.4f} | Recall: {metrics['recall']:.4f}")
+        roc_auc = "N/A" if metrics["roc_auc"] is None else f"{metrics['roc_auc']:.4f}"
+        avg_precision = "N/A" if metrics["average_precision"] is None else f"{metrics['average_precision']:.4f}"
+        print(f"  ROC AUC: {roc_auc} | Average Precision: {avg_precision}")
 
     metadata = {
         "feature_names": feature_cols, "target_name": target_col,
@@ -344,9 +359,17 @@ def _generate_model_card(metrics, metadata, args):
 """
     if "mean_test_f1" in metrics:
         card += f"- Mean F1: {metrics['mean_test_f1']}\n- Median F1: {metrics['median_test_f1']}\n"
+        if "mean_test_roc_auc" in metrics:
+            card += f"- Mean ROC AUC: {metrics['mean_test_roc_auc']}\n- Median ROC AUC: {metrics['median_test_roc_auc']}\n"
+        if "mean_test_average_precision" in metrics:
+            card += f"- Mean Average Precision: {metrics['mean_test_average_precision']}\n- Median Average Precision: {metrics['median_test_average_precision']}\n"
         card += f"- Labels ≥ 0.50: {metrics.get('labels_above_050', 0)}/{metrics.get('labels_total_scored', 0)}\n"
     elif "test_score" in metrics:
         card += f"- {metrics.get('metric', 'score')}: {metrics['test_score']:.4f}\n"
+        if formulation == "classification":
+            roc_auc = "N/A" if metrics.get("roc_auc") is None else f"{metrics['roc_auc']:.4f}"
+            avg_precision = "N/A" if metrics.get("average_precision") is None else f"{metrics['average_precision']:.4f}"
+            card += f"- ROC AUC: {roc_auc}\n- Average Precision: {avg_precision}\n"
     if "nasa_score" in metrics:
         card += f"- NASA Score: {metrics['nasa_score']:.1f}\n"
 
@@ -482,9 +505,17 @@ def main():
     if formulation == "multilabel":
         print(f"  Mean F1: {metrics.get('mean_test_f1', 'N/A')}")
         print(f"  Median F1: {metrics.get('median_test_f1', 'N/A')}")
+        print(f"  Mean ROC AUC: {metrics.get('mean_test_roc_auc', 'N/A')}")
+        print(f"  Median ROC AUC: {metrics.get('median_test_roc_auc', 'N/A')}")
+        print(f"  Mean Average Precision: {metrics.get('mean_test_average_precision', 'N/A')}")
+        print(f"  Median Average Precision: {metrics.get('median_test_average_precision', 'N/A')}")
         print(f"  Labels >= 0.50: {metrics.get('labels_above_050', 0)}/{metrics.get('labels_total_scored', 0)}")
     else:
         print(f"  Test {metrics['metric']} = {metrics['test_score']:.4f}")
+        if formulation == "classification":
+            roc_auc = "N/A" if metrics.get("roc_auc") is None else f"{metrics['roc_auc']:.4f}"
+            avg_precision = "N/A" if metrics.get("average_precision") is None else f"{metrics['average_precision']:.4f}"
+            print(f"  ROC AUC: {roc_auc} | Average Precision: {avg_precision}")
     print(f"{'='*60}")
     print(f"✅ Saved to {args.output}/")
 
