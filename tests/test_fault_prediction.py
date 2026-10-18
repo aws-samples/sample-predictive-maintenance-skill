@@ -53,6 +53,15 @@ class TestTrainAndPredict:
         assert isinstance(result, TrainResult)
         assert len(result.metrics) > 0
 
+        label_metrics = result.metrics["per_label"]["machine_failure"]
+        assert "f1" in label_metrics
+        assert "precision" in label_metrics
+        assert "recall" in label_metrics
+        assert "roc_auc" in label_metrics
+        assert "average_precision" in label_metrics
+        assert label_metrics["roc_auc"] is not None
+        assert label_metrics["average_precision"] is not None
+
     def test_predict_returns_result(self, classification_df):
         model = FailureClassifier()
         model.train(classification_df, classification_df, time_limit=10)
