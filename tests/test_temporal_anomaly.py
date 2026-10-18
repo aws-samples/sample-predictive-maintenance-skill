@@ -73,6 +73,37 @@ class TestTrain:
         assert result.metrics["threshold"] > 0
 
 
+class TestMemoryRegression:
+    def test_wide_series_windowing_stays_float32(self, monkeypatch):
+        """Guard the wide-series memory fix that prevents float64 window blowups."""
+        rng = np.random.default_rng(42)
+        columns = [f"sensor_{i}" for i in range(128)]
+        train_df = pd.DataFrame(rng.normal(size=(96, 128)), columns=columns)
+        test_df = pd.DataFrame(rng.normal(size=(64, 128)), columns=columns)
+
+        observed_dtypes = []
+        original_create_windows = TemporalAnomalyDetector._create_windows
+
+        def record_window_dtype(self, data, window_size):
+            windows = original_create_windows(self, data, window_size)
+            observed_dtypes.append((data.dtype, windows.dtype))
+            return windows
+
+        monkeypatch.setattr(
+            TemporalAnomalyDetector, "_create_windows", record_window_dtype
+        )
+
+        model = TemporalAnomalyDetector(window_size=4, smooth_window=3)
+        model.train(train_df, test_df)
+
+        assert observed_dtypes
+        assert all(
+            input_dtype == np.dtype("float32")
+            and window_dtype == np.dtype("float32")
+            for input_dtype, window_dtype in observed_dtypes
+        )
+
+
 class TestPredict:
     def test_returns_prediction_result(self, temporal_train_df, temporal_test_df):
         model = TemporalAnomalyDetector(window_size=3, smooth_window=5)
