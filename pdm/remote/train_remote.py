@@ -48,18 +48,22 @@ def main():
     elif formulation == "classification":
         # Use AutoGluon via fault_prediction train logic
         from autogluon.tabular import TabularPredictor
+        from pdm.fault_prediction.metrics import evaluate_binary_classifier
         target = "machine_failure"
         predictor = TabularPredictor(
             label=target, eval_metric="f1", problem_type="binary",
             path=str(model_dir / "ag_model"), verbosity=1,
         ).fit(train_data=train_df, time_limit=time_limit, presets="best")
-        from sklearn.metrics import f1_score, precision_score, recall_score
-        preds = predictor.predict(test_df.drop(columns=[target]))
+        X_test = test_df.drop(columns=[target])
+        preds = predictor.predict(X_test)
         y_true = test_df[target].values
+        cls_metrics = evaluate_binary_classifier(predictor, X_test, y_true, y_pred=preds)
         result_metrics = {
-            "f1": round(float(f1_score(y_true, preds)), 4),
-            "precision": round(float(precision_score(y_true, preds)), 4),
-            "recall": round(float(recall_score(y_true, preds)), 4),
+            "f1": round(float(cls_metrics["f1"]), 4),
+            "precision": round(float(cls_metrics["precision"]), 4),
+            "recall": round(float(cls_metrics["recall"]), 4),
+            "roc_auc": None if cls_metrics["roc_auc"] is None else round(float(cls_metrics["roc_auc"]), 4),
+            "average_precision": None if cls_metrics["average_precision"] is None else round(float(cls_metrics["average_precision"]), 4),
         }
         result = type("R", (), {"metrics": result_metrics})()
 

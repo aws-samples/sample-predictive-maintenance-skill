@@ -82,7 +82,7 @@ s3://<output-bucket>/<YYYYMMDD_HHMM>/
 | File | Contract |
 |------|----------|
 | `metadata.json` | `{"feature_names": [...], "label_names": [...], "formulation": str, "training_date": str, "n_train_samples": int, "n_features": int}`. Authoritative source for column alignment at inference. |
-| `metrics.json` | Per-label metrics (F1, precision, recall, positive_rate), aggregate metrics (mean/median F1). Optional: feature_importance. |
+| `metrics.json` | Classification metrics include F1, precision, recall, ROC AUC, and average precision; multi-label runs also include positive_rate and aggregate mean/median metrics. ROC AUC and average precision are `null` when a test split contains only one class. Optional: feature_importance. |
 | `baseline_stats.json` | Per-feature: mean, std, q25, q50, q75, min, max. For drift detection at inference time. |
 | `ag_model/` | AutoGluon model directory. One subdirectory per label for multi-label. Each contains model weights, version info, and predictor config. |
 | `inference.py` | Implements SageMaker hosting contract: `model_fn(model_dir)`, `input_fn(body, content_type)`, `predict_fn(input, model)`, `output_fn(result, content_type)`. Standalone — no imports from `pdm.*`. |
@@ -121,7 +121,7 @@ For **batch**: the SageMaker Processing Job container includes `runtime.py`, `pd
 | `app.py` | CDK app. Reads context from `cdk.json`. |
 | `batch_inference_stack.py` | Creates: EventBridge rule (cron) → Lambda → SageMaker Processing Job. Context vars: `input_bucket`, `ecr_image_uri`, `model_s3_uri`, `instance_type`, `schedule`. |
 | `cdk.json` | All deployment configuration. Changing schedule/instance requires only editing this file. |
-| `lambda/trigger.py` | Lambda that starts a SageMaker Processing Job with yesterday's date as input. |
+| `lambda/trigger.py` | Lambda handler that starts a SageMaker Processing Job with yesterday's date as input. |
 
 **Contract guarantees**:
 - All configuration via `cdk.json` context — no hardcoded values in stack code

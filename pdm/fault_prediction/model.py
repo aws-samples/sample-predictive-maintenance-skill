@@ -6,9 +6,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
-from sklearn.metrics import f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score
 
 from pdm.base import PDMModel, PredictionResult, TrainResult
+from pdm.fault_prediction.metrics import binarize_labels, compute_binary_metrics, positive_class_scores
 
 
 def _apply_smote(train_df: pd.DataFrame, label: str,
@@ -135,26 +136,34 @@ class FailureClassifier(PDMModel):
             threshold = 0.5
             if optimize_threshold:
                 try:
-                    proba = predictor.predict_proba(test_df[self.feature_names])
-                    y_proba = proba.iloc[:, 1].values if proba.shape[1] == 2 else proba.iloc[:, 0].values
-                    threshold = _optimize_threshold(test_df[label].values, y_proba)
+                    y_proba, positive_class = positive_class_scores(predictor, test_df[self.feature_names])
+                    y_true_binary = binarize_labels(test_df[label].values, positive_class)
+                    threshold = _optimize_threshold(y_true_binary, y_proba)
                 except Exception:
                     threshold = 0.5
             self.thresholds[label] = threshold
 
             # Evaluate with optimized threshold
+            y_true = test_df[label].values
             try:
-                proba = predictor.predict_proba(test_df[self.feature_names])
-                y_proba = proba.iloc[:, 1].values if proba.shape[1] == 2 else proba.iloc[:, 0].values
-                y_pred = (y_proba >= threshold).astype(int)
+                y_proba, positive_class = positive_class_scores(predictor, test_df[self.feature_names])
+                y_true_binary = binarize_labels(y_true, positive_class)
+                y_pred_binary = (y_proba >= threshold).astype(int)
+                cls_metrics = compute_binary_metrics(y_true_binary, y_pred_binary, y_proba)
             except Exception:
                 y_pred = predictor.predict(test_df[self.feature_names]).values
+                positive_class = getattr(predictor, "positive_class", 1)
+                cls_metrics = compute_binary_metrics(
+                    binarize_labels(y_true, positive_class),
+                    binarize_labels(y_pred, positive_class),
+                )
 
-            y_true = test_df[label].values
             metrics[label] = {
-                "f1": round(float(f1_score(y_true, y_pred, zero_division=0)), 4),
-                "precision": round(float(precision_score(y_true, y_pred, zero_division=0)), 4),
-                "recall": round(float(recall_score(y_true, y_pred, zero_division=0)), 4),
+                "f1": round(float(cls_metrics["f1"]), 4),
+                "precision": round(float(cls_metrics["precision"]), 4),
+                "recall": round(float(cls_metrics["recall"]), 4),
+                "roc_auc": None if cls_metrics["roc_auc"] is None else round(float(cls_metrics["roc_auc"]), 4),
+                "average_precision": None if cls_metrics["average_precision"] is None else round(float(cls_metrics["average_precision"]), 4),
                 "threshold": round(threshold, 3),
                 "smote_applied": use_smote and train_df[label].mean() < 0.10,
             }
@@ -167,6 +176,14 @@ class FailureClassifier(PDMModel):
             f1s = [v["f1"] for v in scored]
             summary["mean_f1"] = round(float(np.mean(f1s)), 4)
             summary["median_f1"] = round(float(np.median(f1s)), 4)
+            roc_aucs = [v["roc_auc"] for v in scored if v.get("roc_auc") is not None]
+            avg_precisions = [v["average_precision"] for v in scored if v.get("average_precision") is not None]
+            if roc_aucs:
+                summary["mean_roc_auc"] = round(float(np.mean(roc_aucs)), 4)
+                summary["median_roc_auc"] = round(float(np.median(roc_aucs)), 4)
+            if avg_precisions:
+                summary["mean_average_precision"] = round(float(np.mean(avg_precisions)), 4)
+                summary["median_average_precision"] = round(float(np.median(avg_precisions)), 4)
         summary["per_label"] = metrics
 
         return TrainResult(
@@ -182,8 +199,7 @@ class FailureClassifier(PDMModel):
         for label, predictor in self.predictors.items():
             threshold = self.thresholds.get(label, 0.5)
             try:
-                proba = predictor.predict_proba(X)
-                y_proba = proba.iloc[:, 1].values if proba.shape[1] == 2 else proba.iloc[:, 0].values
+                y_proba, _ = positive_class_scores(predictor, X)
                 results[f"{label}_pred"] = (y_proba >= threshold).astype(int)
                 results[f"{label}_proba"] = y_proba
             except Exception:
