@@ -24,6 +24,7 @@ class _SpyPredictor:
         self.path = path
         self.sample_weight = sample_weight
         self.model_best = "SpyModel"
+        self.positive_class = 1
         self.fit_data = None
         self.__class__.instances.append(self)
 
@@ -39,6 +40,12 @@ class _SpyPredictor:
 
     def predict(self, features):
         return pd.Series(np.zeros(len(features), dtype=int), index=features.index)
+
+    def predict_proba(self, features, as_multiclass=True):
+        positive = pd.Series(np.zeros(len(features), dtype=float), index=features.index)
+        if not as_multiclass:
+            return positive
+        return pd.DataFrame({0: 1.0 - positive, 1: positive}, index=features.index)
 
 
 @pytest.fixture
