@@ -32,13 +32,13 @@
   },
   "smap_anomaly_detection": {
     "metric": "f1",
-    "baseline": 0.9667,
+    "baseline": 0.4355,
     "tolerance_pct": 10,
     "direction": "higher_is_better",
     "dataset": "NASA SMAP (55 channels, 25 dims)",
-    "model": "SpectralResidualDetector(sr_window=5, aggregation_percentile=95)",
+    "model": "SpectralResidualDetector(sr_window=5, aggregation_percentile=95, contamination=0.10)",
     "time_limit": 300,
-    "locked_at": "2026-07-02",
-    "note": "Point-adjust F1; spectral residual with z-score normalization and percentile aggregation"
+    "locked_at": "2026-10-19",
+    "note": "Point-adjust F1 using a threshold calibrated only from normal training scores. Test labels are evaluation-only. The previous 0.9667 baseline used held-out labels during threshold calibration and is not comparable. Canonical leakage-free run also reports ROC AUC=0.5466 and Average Precision=0.1606."
   }
 }
