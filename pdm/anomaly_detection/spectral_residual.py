@@ -8,15 +8,13 @@ patterns. This implementation uses:
 2. Per-feature FFT → Spectral Residual → IFFT (frequency-domain saliency)
 3. Z-scoring SR scores against training distribution (calibrates per-feature)
 4. Percentile aggregation across features (robust to noise)
-5. Optimal threshold search (maximizes point-adjust F1)
+5. Training-score percentile threshold (no test-label calibration)
 
 Key insight: The Spectral Residual highlights time points where the frequency
 content deviates from the local spectral average. For SMAP-style data where
 channels are concatenated, the global FFT captures periodic patterns unique to
-each channel's segment, making SR highly effective at detecting anomalous
-departures from normal periodicity.
-
-Performance: F1=0.97 on NASA SMAP (vs 0.73 for temporal PCA reconstruction).
+each channel's segment, making SR useful for detecting anomalous departures
+from normal periodicity.
 
 Reference: Ren, H. et al. "Time-Series Anomaly Detection Service at Microsoft"
 (SR-CNN), KDD 2019. Our implementation adds z-score normalization against
@@ -53,7 +51,8 @@ class SpectralResidualDetector(PDMModel):
         aggregation_percentile: Percentile (0-100) for aggregating per-feature
             z-scores into a single anomaly score per timestep. 95 is robust
             to noisy features while still catching localized anomalies.
-        contamination: Expected anomaly fraction (for fallback threshold).
+        contamination: Expected anomaly fraction used to select the threshold
+            from the normal training-score distribution.
         scoring: Legacy parameter for API compatibility ('max' or 'percentile').
     """
 
@@ -85,7 +84,8 @@ class SpectralResidualDetector(PDMModel):
 
         Args:
             train_df: Training data (assumed normal/healthy).
-            test_df: Test data with potential anomalies (used for threshold calibration).
+            test_df: Held-out data used only for anomaly-rate evaluation. Labels
+                do not influence model fitting or threshold calibration.
             **kwargs: Optional overrides (sr_window, aggregation_percentile, contamination).
 
         Returns:
@@ -118,15 +118,9 @@ class SpectralResidualDetector(PDMModel):
         test_zscored = (test_sr - self._train_sr_mean) / self._train_sr_std
         test_scores = np.percentile(test_zscored, aggregation_percentile, axis=1)
 
-        # Set threshold based on contamination (fallback)
+        # Set the deployable threshold from the normal training-score
+        # distribution only. Held-out/test labels must never influence model state.
         self.threshold = float(np.percentile(train_scores, (1 - contamination) * 100))
-
-        # If test labels available, find optimal threshold
-        if "label" in test_df.columns:
-            y_true = test_df["label"].values.astype(int)
-            opt_thresh = self._optimize_threshold(test_scores, y_true)
-            if opt_thresh is not None:
-                self.threshold = opt_thresh
 
         test_anomaly_rate = float((test_scores > self.threshold).mean())
 
@@ -263,7 +257,7 @@ class SpectralResidualDetector(PDMModel):
             # Spectral residual: deviation from local spectral average
             avg_log = uniform_filter1d(log_mag, size=sr_window)
             sr = log_mag - avg_log
-            # Map back to time domain
+            # Map back to time domain saliency via IFFT
             phase = np.angle(freq)
             sr_freq = np.exp(sr) * np.exp(1j * phase)
             feature_scores[:, f] = np.abs(np.fft.ifft(sr_freq)) ** 2
@@ -272,7 +266,12 @@ class SpectralResidualDetector(PDMModel):
 
     def _optimize_threshold(self, scores: np.ndarray, y_true: np.ndarray,
                             n_candidates: int = 1000) -> Optional[float]:
-        """Find threshold that maximizes point-adjust F1 on labeled data."""
+        """Find an oracle point-adjust-F1 threshold for diagnostics only.
+
+        This helper intentionally remains available for offline analysis, but
+        ``train()`` never uses labeled held-out/test data to set the deployable
+        model threshold.
+        """
         lo = np.percentile(scores, 5)
         hi = np.percentile(scores, 99.99)
         if lo >= hi:
