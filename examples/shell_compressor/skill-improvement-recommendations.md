@@ -27,7 +27,7 @@ paths and guidance that a tidy benchmark never touches.
 | **R2** | Report threshold-independent metrics for classification | Evaluation | High | Low |
 | **R3** | Make the classification quality gate imbalance-aware | Evaluation | High | Low |
 | **R4** | Add formulation guidance keyed to label economics | Guidance | High | Low |
-| **R5** | AD threshold is tuned on the test labels (leak) | Correctness | Med | Med |
+| **R5** | AD threshold is tuned on the test labels (leak) | Correctness | Med | — (done, PR #8) |
 | **R6** | Add an automated leakage check in data exploration | Robustness | Med | Med |
 | **R7** | Deliver the threshold selection the docs already promise | Consistency | Med | Med |
 | **R8** | Memory pre-flight + SMOTE caveat for wide/sparse data | Polish | Low | Low |
@@ -123,6 +123,8 @@ checklist recommends anomaly detection "based on data dimensionality"
   "Both" was a real strength of the skill — this just adds a steer.)
 
 ### R5 — The anomaly detector tunes its threshold on the test labels
+
+> **Status: fixed in PR #8.** `TemporalAnomalyDetector` and `SpectralResidualDetector` now set the threshold from normal training scores only, and test labels are evaluation-only. The F1 numbers in `anomaly_detection/experiments.md` were produced before this fix and remain oracle ceilings.
 `TemporalAnomalyDetector.train()` optimizes the decision threshold against
 `test_df["label"]`
 ([temporal.py:127–130](../../pdm/anomaly_detection/temporal.py#L127)). Every

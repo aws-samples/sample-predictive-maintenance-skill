@@ -109,12 +109,14 @@ Benchmarks are **separate from tests**. They:
 
 | Benchmark | Dataset | Metric | Baseline | Tolerance |
 |-----------|---------|--------|----------|-----------|
-| `cmapss_fd001_rul` | C-MAPSS FD001 | RMSE ↓ | 16.48 | ±10% |
+| `cmapss_fd001_rul` | C-MAPSS FD001 | RMSE ↓ | 11.93 | ±10% |
 | `ai4i_classification` | AI4I 2020 | F1 ↑ | 0.82 | ±5% |
-| `battery_survival` | NASA Battery | C-index ↑ | 1.00 | ±5% |
-| `smap_anomaly_detection` | NASA SMAP | F1 ↑ | 0.54 | ±10% |
+| `hdfail_survival` | Backblaze hdfail | C-index ↑ | 0.88 | ±5% |
+| `smap_anomaly_detection` | NASA SMAP | ROC AUC ↑ | 0.6053 | ±5% |
 
 Tolerances account for run-to-run variance from random seeds and model selection.
+
+SMAP is gated on ROC AUC rather than point-adjust F1 because a random detector at the same alert rate scores almost the same PA-F1 (0.631 vs 0.638). See [references/baselines.md](references/baselines.md).
 
 ### Running Benchmarks
 
@@ -125,7 +127,7 @@ uv run python -m pdm.benchmarks.benchmark ./benchmark_data all
 # Run a single benchmark
 uv run python -m pdm.benchmarks.benchmark ./benchmark_data cmapss
 uv run python -m pdm.benchmarks.benchmark ./benchmark_data ai4i
-uv run python -m pdm.benchmarks.benchmark ./benchmark_data battery
+uv run python -m pdm.benchmarks.benchmark ./benchmark_data hdfail
 uv run python -m pdm.benchmarks.benchmark ./benchmark_data smap
 
 # Update baselines after confirmed improvement
@@ -149,7 +151,7 @@ uv run python -m pdm.benchmarks.download ./benchmark_data all
 Data sources:
 - **C-MAPSS**: [NASA Data Portal](https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data)
 - **AI4I 2020**: [UCI ML Repository](https://archive.ics.uci.edu/dataset/601)
-- **NASA Battery**: [NASA PCoE Prognostics Data Repository](https://www.nasa.gov/content/prognostics-center-of-excellence-data-set-repository) (Li-Ion charge/discharge cycles)
+- **Backblaze hdfail**: `hdfail` dataset from the [frailtySurv](https://cran.r-project.org/package=frailtySurv) CRAN package (Backblaze SMART stats, 52K drives, survival formulation)
 - **NASA SMAP**: Spacecraft telemetry anomaly detection
 
 ### When to Run Benchmarks

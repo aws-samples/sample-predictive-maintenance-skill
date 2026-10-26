@@ -71,7 +71,7 @@ Use this skill when the user:
     │   ├── __init__.py
     │   ├── model.py                 # AnomalyDetector(PDMModel) — point-wise IF
     │   ├── temporal.py              # TemporalAnomalyDetector(PDMModel) — sliding-window PCA reconstruction
-    │   ├── spectral_residual.py     # SpectralResidualDetector(PDMModel) — frequency-domain saliency (BEST for SMAP-like data)
+    │   ├── spectral_residual.py     # SpectralResidualDetector(PDMModel) — frequency-domain saliency (block-wise FFT, `sr_block_size`)
     │   ├── train_anomaly.py         # Legacy CLI (still works)
     │   ├── evaluate_anomaly.py      # AD evaluation + synthetic injection test
     │   ├── synthetic_anomalies.py   # Synthetic anomaly injection utility
