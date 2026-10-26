@@ -89,13 +89,14 @@ def run_ai4i(data_dir: Path, time_limit: int = 120) -> dict:
 def run_smap(data_dir: Path, time_limit: int = 300) -> dict:
     """Run NASA SMAP anomaly detection benchmark.
 
-    Uses SpectralResidualDetector (frequency-domain saliency with z-score
-    normalization) which captures spectral anomalies critical for segment-based
-    anomaly detection under point-adjust evaluation.
+    Uses SpectralResidualDetector (block-wise frequency-domain saliency with
+    z-score normalization against the training distribution).
 
     The detector threshold is calibrated from normal training scores only.
-    Test labels are reserved for final evaluation. Threshold-independent ROC AUC
-    and Average Precision are reported alongside point-adjust operating metrics.
+    Test labels are reserved for final evaluation. The regression gate is the
+    threshold-independent ROC AUC; point-adjust F1/precision/recall are reported
+    for reference only, because on SMAP a random detector with the same alert
+    rate reaches a similar point-adjust F1.
     """
     from sklearn.metrics import (
         average_precision_score,

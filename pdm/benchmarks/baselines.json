@@ -31,14 +31,14 @@
     "note": "Replaces saturated NASA Battery benchmark. 94% censoring, 5.5% failure rate. Source: frailtySurv R package (Backblaze Drive Stats). Published SOTA C=0.958 with 21 SMART features (Ahmed & Green, 2024)."
   },
   "smap_anomaly_detection": {
-    "metric": "f1",
-    "baseline": 0.4355,
-    "tolerance_pct": 10,
+    "metric": "roc_auc",
+    "baseline": 0.6053,
+    "tolerance_pct": 5,
     "direction": "higher_is_better",
     "dataset": "NASA SMAP (55 channels, 25 dims)",
-    "model": "SpectralResidualDetector(sr_window=5, aggregation_percentile=95, contamination=0.10)",
+    "model": "SpectralResidualDetector(sr_window=5, aggregation_percentile=95, contamination=0.10, sr_block_size=256)",
     "time_limit": 300,
-    "locked_at": "2026-10-19",
-    "note": "Point-adjust F1 using a threshold calibrated only from normal training scores. Test labels are evaluation-only. The previous 0.9667 baseline used held-out labels during threshold calibration and is not comparable. Canonical leakage-free run also reports ROC AUC=0.5466 and Average Precision=0.1606."
+    "locked_at": "2026-10-26",
+    "note": "Gated on threshold-independent ROC AUC (random = 0.5). Point-adjust F1 is not used as the gate: a random detector at the same 17% alert rate scores PA-F1=0.631 vs 0.638 for this model. Score version 2 (block-wise SR, orthonormal IFFT, relative spectral floor); threshold from normal training scores only, test labels evaluation-only. Canonical run also reports PA-F1=0.6378, precision=0.4702, recall=0.9910, AP=0.1613 (prevalence 0.128). Superseded baselines: PA-F1=0.9667 (test-label threshold leak) and PA-F1=0.4355 (v1 scoring, only 28 test points could cross the threshold)."
   }
 }
