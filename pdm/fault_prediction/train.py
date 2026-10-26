@@ -21,7 +21,13 @@ import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
 
-from pdm.fault_prediction.metrics import evaluate_binary_classifier
+from pdm.fault_prediction.metrics import (
+    classification_eval_metric,
+    classification_eval_metric_name,
+    evaluate_binary_classifier,
+    normalize_optimization_priority,
+    predictor_decision_threshold,
+)
 
 
 def nasa_scoring(y_true, y_pred):
@@ -72,7 +78,7 @@ def _append_progress(label, result, output_dir):
         f.write(line)
 
 
-def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time_limit, presets, rebalance=False, skip_importance=False):
+def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time_limit, presets, rebalance=False, skip_importance=False, optimization_priority="balanced"):
     """Train one label — designed to be called in parallel."""
     pos_rate = train_df[label].mean()
     n_pos = int(train_df[label].sum())
@@ -90,8 +96,11 @@ def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time
         train_label_df["sample_weight"] = weights / weights.mean()
         sample_weight_col = "sample_weight"
 
+    optimization_priority = normalize_optimization_priority(optimization_priority)
+    eval_metric = classification_eval_metric(optimization_priority)
+    eval_metric_name = classification_eval_metric_name(optimization_priority)
     predictor = TabularPredictor(
-        label=label, eval_metric="f1", problem_type="binary",
+        label=label, eval_metric=eval_metric, problem_type="binary",
         path=str(output_dir / "ag_model" / label.replace(" ", "_")),
         sample_weight=sample_weight_col,
         verbosity=0,
@@ -121,6 +130,9 @@ def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time
         "test_roc_auc": None if cls_metrics["roc_auc"] is None else round(cls_metrics["roc_auc"], 4),
         "test_average_precision": None if cls_metrics["average_precision"] is None else round(cls_metrics["average_precision"], 4),
         "positive_rate": round(pos_rate, 5),
+        "optimization_priority": optimization_priority,
+        "eval_metric": eval_metric_name,
+        "decision_threshold": round(predictor_decision_threshold(predictor), 6),
         "n_positives_train": n_pos, "best_model": predictor.model_best,
         "top_features": top_feats,
     }
@@ -137,7 +149,13 @@ def train_multilabel(train_df, test_df, args):
     print(f"  Labels: {len(label_cols)} | Features: {len(feature_cols)}")
     print(f"  Time/label: {args.time_limit}s | Presets: {args.presets} | Workers: {args.workers}\n")
 
-    metrics = {"formulation": "multi-label classification", "labels": {}}
+    optimization_priority = normalize_optimization_priority(getattr(args, "optimization_priority", "balanced"))
+    metrics = {
+        "formulation": "multi-label classification",
+        "optimization_priority": optimization_priority,
+        "eval_metric": classification_eval_metric_name(optimization_priority),
+        "labels": {},
+    }
     all_importance = {}
 
     if args.workers > 1:
@@ -146,7 +164,7 @@ def train_multilabel(train_df, test_df, args):
                 executor.submit(
                     _train_single_label, label, feature_cols, train_df, test_df,
                     args.output, args.time_limit, args.presets, args.rebalance,
-                    args.skip_importance
+                    args.skip_importance, optimization_priority
                 ): label for label in label_cols
             }
             for future in as_completed(futures):
@@ -163,7 +181,7 @@ def train_multilabel(train_df, test_df, args):
             label, result, importance_list = _train_single_label(
                 label, feature_cols, train_df, test_df,
                 args.output, args.time_limit, args.presets, args.rebalance,
-                args.skip_importance
+                args.skip_importance, optimization_priority
             )
             metrics["labels"][label] = result
             if importance_list:
@@ -208,11 +226,19 @@ def train_single(train_df, test_df, formulation, args):
     target_map = {"regression": "RUL", "classification": "machine_failure", "survival": "duration"}
     target_col = target_map[formulation]
     problem_type = "binary" if formulation == "classification" else "regression"
-    eval_metric = "f1" if formulation == "classification" else "root_mean_squared_error"
+    optimization_priority = normalize_optimization_priority(
+        getattr(args, "optimization_priority", "balanced")
+    )
+    eval_metric = (
+        classification_eval_metric(optimization_priority)
+        if formulation == "classification"
+        else "root_mean_squared_error"
+    )
 
     # Use NASA scoring as objective for RUL if available
     if formulation == "regression" and nasa_ag_scorer is not None:
         eval_metric = nasa_ag_scorer
+    eval_metric_name = getattr(eval_metric, "name", eval_metric)
 
     drop_cols = []
     if formulation == "survival":
@@ -223,7 +249,7 @@ def train_single(train_df, test_df, formulation, args):
         train_df = train_df.drop(columns=[c for c in drop_cols if c in train_df.columns])
         test_df = test_df.drop(columns=[c for c in drop_cols if c in test_df.columns])
 
-    print(f"  Target: {target_col} | Metric: {eval_metric}")
+    print(f"  Target: {target_col} | Metric: {eval_metric_name}")
 
     sample_weight_col = None
     if args.rebalance and formulation == "classification":
@@ -295,8 +321,8 @@ def train_single(train_df, test_df, formulation, args):
             print(f"  ⚠️ Unstable feature rankings (>10 rank swing): {unstable[:5]}")
 
     metrics = {
-        "formulation": formulation, "metric": eval_metric,
-        "test_score": float(perf[eval_metric]) if isinstance(perf, dict) else float(perf),
+        "formulation": formulation, "metric": eval_metric_name,
+        "test_score": float(perf[eval_metric_name]) if isinstance(perf, dict) else float(perf),
         "best_model": predictor.model_best,
     }
     if importance is not None:
@@ -316,7 +342,10 @@ def train_single(train_df, test_df, formulation, args):
         y_true = test_df[target_col].values
         cls_metrics = evaluate_binary_classifier(predictor, X_test, y_true, y_pred=y_pred)
         metrics.update(cls_metrics)
+        metrics["optimization_priority"] = optimization_priority
+        metrics["decision_threshold"] = round(predictor_decision_threshold(predictor), 6)
         print(f"  F1: {metrics['f1']:.4f} | Precision: {metrics['precision']:.4f} | Recall: {metrics['recall']:.4f}")
+        print(f"  Decision threshold: {metrics['decision_threshold']:.6f} ({metrics['optimization_priority']} priority)")
         roc_auc = "N/A" if metrics["roc_auc"] is None else f"{metrics['roc_auc']:.4f}"
         avg_precision = "N/A" if metrics["average_precision"] is None else f"{metrics['average_precision']:.4f}"
         print(f"  ROC AUC: {roc_auc} | Average Precision: {avg_precision}")
@@ -421,6 +450,12 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--warm-start", action="store_true", help="Load existing model and refit on new data")
     parser.add_argument("--skip-importance", action="store_true", help="Skip permutation feature importance (saves ~60%% of total time for best_quality)")
+    parser.add_argument(
+        "--optimization-priority",
+        choices=["balanced", "recall", "precision"],
+        default="balanced",
+        help="Classification operating priority; selects AutoGluon metric and validation-calibrated threshold",
+    )
     args = parser.parse_args()
 
     if not args.train.exists():
@@ -469,7 +504,11 @@ def main():
     (args.output / "metrics.json").write_text(json.dumps(metrics, indent=2))
     (args.output / "metadata.json").write_text(json.dumps(metadata, indent=2))
     (args.output / "config.json").write_text(json.dumps(
-        {"time_limit": args.time_limit, "presets": args.presets}, indent=2
+        {
+            "time_limit": args.time_limit,
+            "presets": args.presets,
+            "optimization_priority": args.optimization_priority,
+        }, indent=2
     ))
 
     # Drift detection baseline: save feature distributions for future monitoring
@@ -516,6 +555,7 @@ def main():
             roc_auc = "N/A" if metrics.get("roc_auc") is None else f"{metrics['roc_auc']:.4f}"
             avg_precision = "N/A" if metrics.get("average_precision") is None else f"{metrics['average_precision']:.4f}"
             print(f"  ROC AUC: {roc_auc} | Average Precision: {avg_precision}")
+            print(f"  Decision threshold: {metrics.get('decision_threshold', 0.5):.6f}")
     print(f"{'='*60}")
     print(f"✅ Saved to {args.output}/")
 

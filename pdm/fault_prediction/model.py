@@ -6,10 +6,18 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from autogluon.tabular import TabularPredictor
-from sklearn.metrics import f1_score
 
 from pdm.base import PDMModel, PredictionResult, TrainResult
-from pdm.fault_prediction.metrics import binarize_labels, compute_binary_metrics, positive_class_scores
+from pdm.fault_prediction.metrics import (
+    binarize_labels,
+    classification_eval_metric,
+    classification_eval_metric_name,
+    compute_binary_metrics,
+    evaluate_binary_classifier,
+    normalize_optimization_priority,
+    positive_class_scores,
+    predictor_decision_threshold,
+)
 
 
 def _apply_smote(train_df: pd.DataFrame, label: str,
@@ -46,23 +54,6 @@ def _apply_smote(train_df: pd.DataFrame, label: str,
     return result
 
 
-def _optimize_threshold(y_true: np.ndarray, y_proba: np.ndarray) -> float:
-    """Find classification threshold that maximizes F1 on validation data.
-
-    Searches thresholds from 0.1 to 0.9 in steps of 0.02.
-
-    Returns:
-        Optimal threshold value
-    """
-    best_f1, best_thresh = 0.0, 0.5
-    for thresh in np.arange(0.10, 0.91, 0.02):
-        preds = (y_proba >= thresh).astype(int)
-        f1 = f1_score(y_true, preds, zero_division=0)
-        if f1 > best_f1:
-            best_f1, best_thresh = f1, float(thresh)
-    return best_thresh
-
-
 class FailureClassifier(PDMModel):
     """Binary or multi-label failure classification using AutoGluon.
 
@@ -71,8 +62,10 @@ class FailureClassifier(PDMModel):
       - Multi-label classification (label_* columns)
 
     Options:
-      - use_smote (bool, default True): Apply SMOTE when positive rate < 10%
-      - optimize_threshold (bool, default True): Find F1-optimal classification threshold
+      - use_smote (bool, default False): Apply SMOTE when positive rate < 10%
+      - optimization_priority (str, default "balanced"): balanced, recall, or precision
+      - optimize_threshold (bool, optional): Backward-compatible control for AutoGluon's
+        validation-only decision-threshold calibration. Test labels are never used.
     """
 
     formulation = "classification"
@@ -93,14 +86,24 @@ class FailureClassifier(PDMModel):
             time_limit: Training time per label (seconds, default 600)
             presets: AutoGluon presets (default "best")
             output: Model output directory
-            use_smote: Apply SMOTE for imbalanced labels (default True)
-            optimize_threshold: Find F1-optimal threshold (default True)
+            use_smote: Apply SMOTE for imbalanced labels (default False)
+            optimization_priority: balanced, recall, or precision (default "balanced")
+            optimize_threshold: Optional legacy switch. If provided, controls AutoGluon's
+                validation-only calibration; it never tunes on ``test_df``.
         """
         time_limit = kwargs.get("time_limit", 600)
         presets = kwargs.get("presets", "best")
         output = Path(kwargs.get("output", "./model"))
         use_smote = kwargs.get("use_smote", False)
-        optimize_threshold = kwargs.get("optimize_threshold", False)
+        optimization_priority = normalize_optimization_priority(
+            kwargs.get("optimization_priority", "balanced")
+        )
+        eval_metric = classification_eval_metric(optimization_priority)
+        eval_metric_name = classification_eval_metric_name(optimization_priority)
+        legacy_optimize_threshold = kwargs.get("optimize_threshold") if "optimize_threshold" in kwargs else None
+        calibrate_decision_threshold = (
+            "auto" if legacy_optimize_threshold is None else bool(legacy_optimize_threshold)
+        )
 
         label_cols = sorted([c for c in train_df.columns if c.startswith("label_")])
         if label_cols:
@@ -127,29 +130,27 @@ class FailureClassifier(PDMModel):
                 train_input = _apply_smote(train_input, label, self.feature_names)
 
             predictor = TabularPredictor(
-                label=label, eval_metric="f1", problem_type="binary",
+                label=label, eval_metric=eval_metric, problem_type="binary",
                 path=str(output / "ag_model" / label.replace(" ", "_")),
                 verbosity=0,
-            ).fit(train_data=train_input, time_limit=time_limit, presets=presets)
+            ).fit(
+                train_data=train_input,
+                time_limit=time_limit,
+                presets=presets,
+                calibrate_decision_threshold=calibrate_decision_threshold,
+            )
 
-            # Threshold optimization
-            threshold = 0.5
-            if optimize_threshold:
-                try:
-                    y_proba, positive_class = positive_class_scores(predictor, test_df[self.feature_names])
-                    y_true_binary = binarize_labels(test_df[label].values, positive_class)
-                    threshold = _optimize_threshold(y_true_binary, y_proba)
-                except Exception:
-                    threshold = 0.5
+            # AutoGluon calibrates this threshold on its validation data. Test labels
+            # are evaluation-only and must never influence the deployable threshold.
+            threshold = predictor_decision_threshold(predictor)
             self.thresholds[label] = threshold
 
-            # Evaluate with optimized threshold
             y_true = test_df[label].values
             try:
-                y_proba, positive_class = positive_class_scores(predictor, test_df[self.feature_names])
-                y_true_binary = binarize_labels(y_true, positive_class)
-                y_pred_binary = (y_proba >= threshold).astype(int)
-                cls_metrics = compute_binary_metrics(y_true_binary, y_pred_binary, y_proba)
+                y_pred = predictor.predict(test_df[self.feature_names])
+                cls_metrics = evaluate_binary_classifier(
+                    predictor, test_df[self.feature_names], y_true, y_pred=y_pred
+                )
             except Exception:
                 y_pred = predictor.predict(test_df[self.feature_names]).values
                 positive_class = getattr(predictor, "positive_class", 1)
@@ -164,7 +165,10 @@ class FailureClassifier(PDMModel):
                 "recall": round(float(cls_metrics["recall"]), 4),
                 "roc_auc": None if cls_metrics["roc_auc"] is None else round(float(cls_metrics["roc_auc"]), 4),
                 "average_precision": None if cls_metrics["average_precision"] is None else round(float(cls_metrics["average_precision"]), 4),
-                "threshold": round(threshold, 3),
+                "threshold": round(threshold, 6),
+                "decision_threshold": round(threshold, 6),
+                "optimization_priority": optimization_priority,
+                "eval_metric": eval_metric_name,
                 "smote_applied": use_smote and train_df[label].mean() < 0.10,
             }
             self.predictors[label] = predictor
@@ -189,18 +193,25 @@ class FailureClassifier(PDMModel):
         return TrainResult(
             model=self.predictors,
             metrics=summary,
-            metadata={"formulation": self.formulation, "feature_names": self.feature_names, "label_names": self.label_names},
+            metadata={
+                "formulation": self.formulation,
+                "feature_names": self.feature_names,
+                "label_names": self.label_names,
+                "optimization_priority": optimization_priority,
+                "eval_metric": eval_metric_name,
+            },
         )
 
     def predict(self, features: pd.DataFrame) -> PredictionResult:
-        """Predict failure labels with probabilities using optimized thresholds."""
+        """Predict failure labels with probabilities using the calibrated thresholds."""
         X = features.reindex(columns=self.feature_names, fill_value=0)
         results = {}
         for label, predictor in self.predictors.items():
-            threshold = self.thresholds.get(label, 0.5)
+            threshold = self.thresholds.get(label, predictor_decision_threshold(predictor))
             try:
                 y_proba, _ = positive_class_scores(predictor, X)
-                results[f"{label}_pred"] = (y_proba >= threshold).astype(int)
+                # Match AutoGluon's binary conversion rule: positive when p > threshold.
+                results[f"{label}_pred"] = (y_proba > threshold).astype(int)
                 results[f"{label}_proba"] = y_proba
             except Exception:
                 results[f"{label}_pred"] = predictor.predict(X).values
@@ -241,5 +252,8 @@ class FailureClassifier(PDMModel):
         for label in meta["label_names"]:
             label_dir = ag_path / label.replace(" ", "_")
             if label_dir.exists():
-                obj.predictors[label] = TabularPredictor.load(str(label_dir), verbosity=0)
+                predictor = TabularPredictor.load(str(label_dir), verbosity=0)
+                obj.predictors[label] = predictor
+                if label not in obj.thresholds:
+                    obj.thresholds[label] = predictor_decision_threshold(predictor)
         return obj
