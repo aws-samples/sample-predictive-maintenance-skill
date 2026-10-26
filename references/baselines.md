@@ -27,15 +27,22 @@ Choose the anomaly detection model based on the data characteristics:
 | **Multivariate time-series** (when SR doesn't fit) | `TemporalAnomalyDetector` | Data has temporal structure but no periodic patterns (e.g., monotonically degrading signals) |
 | **Tabular / point-wise features** | `AnomalyDetector` (Isolation Forest) | No temporal dependency, each row is independent (e.g., pre-aggregated daily features) |
 
-**Default for time-series data**: Start with `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` and evaluate it against the anomaly-detection quality gate below. Do not tune its deployable threshold on held-out/test labels.
+**Default for time-series data**: There is no single default. Train both `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` and `TemporalAnomalyDetector`, then compare them on threshold-independent metrics (ROC AUC, Average Precision) from a validation split. Report point-adjust F1 only next to those metrics, never on its own. Do not tune either detector's deployable threshold on held-out/test labels.
+
+**Why not point-adjust F1 alone:** point-adjust credits a whole anomaly segment if any single point in it is flagged, so it rewards alerting often. On NASA SMAP, a *random* detector with a 17% alert rate scores PA-F1=0.63, about the same as `SpectralResidualDetector` (0.64, ROC AUC 0.61). For both detectors, ranking quality on SMAP is close to random (`TemporalAnomalyDetector` ROC AUC ≈ 0.45). Always compare PA-F1 against a random detector with the same alert rate.
 
 **How SpectralResidualDetector works:**
-1. Compute FFT per feature → log-magnitude spectrum
-2. Spectral residual = log_mag - moving_average(log_mag) (highlights unexpected frequencies)
-3. IFFT back to time domain → per-feature saliency scores
-4. Z-score against training distribution (calibrates per-feature sensitivity)
-5. P95 percentile aggregation across features (robust to noisy features)
-6. Select the decision threshold from the normal training-score distribution using `contamination`; held-out/test labels are evaluation-only
+1. Split the series into consecutive blocks of `sr_block_size` samples (default 256)
+2. Per block and feature: FFT → log-magnitude spectrum, floored at 10% of the block's mean magnitude (so exactly-zero bins from binary/periodic channels can't dominate)
+3. Spectral residual = log_mag - moving_average(log_mag) (highlights unexpected frequencies)
+4. Orthonormal IFFT back to time domain → per-feature saliency scores (scale is independent of block length)
+5. Z-score against training distribution (calibrates per-feature sensitivity)
+6. P95 percentile aggregation across features (robust to noisy features)
+7. Select the decision threshold from the normal training-score distribution using `contamination`; held-out/test labels are evaluation-only
+
+**Choosing `sr_block_size`:** the block should span several periods of the dominant normal cycle. Scores depend only on a point's block, so `predict()` gives identical scores whether a long series is scored at once or streamed in block-aligned batches of `sr_block_size` rows. Batches shorter than a block are scored as a single block, on the same scale but with coarser frequency resolution. Models saved before `score_version` 2 are rejected by `load()` and must be retrained.
+
+**Check calibration:** the alert rate on normal validation data should be close to `contamination`. A much higher rate means normal behavior drifted between the training and evaluation periods. On SMAP, 16% of normal test points are flagged at `contamination=0.10`.
 
 **When to use TemporalAnomalyDetector instead:**
 - Data is non-stationary with trends (SR assumes stationarity within each signal)

@@ -69,7 +69,7 @@ Results from running the full skill workflow (Phases 1–5: setup → data prep 
 | C-MAPSS FD001 (RUL) | RMSE ↓ | **11.40** | 9.21 (AutoRUL) | +24% gap; feature selection + XGBoost HPO |
 | AI4I 2020 (Classification) | F1 ↑ | **0.889** | ~0.99 (FL+SMOTE) | -10% gap; closes with SMOTE |
 | Backblaze hdfail (Survival) | C-index ↑ | **0.88** | 0.958 (Cox, 21 feats) | 52K drives, 94% censoring |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.44** | ~0.90 (THOC/TranAD) | Spectral Residual; training-only threshold, no test-label calibration |
+| NASA SMAP (Anomaly Detection) | PA-F1 ↑ | **0.64** | ~0.90 (THOC/TranAD) | Spectral Residual; ROC AUC 0.61; a random detector scores PA-F1 0.63 (see note) |
 
 **Baselines** (Phase 4 only — no experimentation, default model, no feature engineering):
 
@@ -78,11 +78,11 @@ Results from running the full skill workflow (Phases 1–5: setup → data prep 
 | C-MAPSS FD001 (RUL) | RMSE ↓ | 16.48 | `RULPredictor(window_size=15, stride=5, presets=medium_quality)` |
 | AI4I 2020 (Classification) | F1 ↑ | 0.82 | `FailureClassifier()` with default features |
 | Backblaze hdfail (Survival) | C-index ↑ | 0.88 | `SurvivalPredictor()` — 52K drives, 94% censoring |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | 0.44 | `SpectralResidualDetector(sr_window=5, aggregation_percentile=95, contamination=0.10)` |
+| NASA SMAP (Anomaly Detection) | ROC AUC ↑ | 0.61 | `SpectralResidualDetector(sr_window=5, aggregation_percentile=95, contamination=0.10, sr_block_size=256)` |
 
 The baselines in `pdm/benchmarks/baselines.json` are regression gates — they ensure code changes don't degrade the out-of-the-box model quality. The "Best Result" column reflects what the skill achieves when the full experimentation loop (Phase 5) runs with domain-informed feature engineering.
 
-The previous SMAP F1 value of 0.97 was produced with a decision threshold optimized using held-out test labels, so it represented oracle diagnostic performance rather than deployable performance. With the threshold calibrated only from normal training scores (`contamination=0.10`), the canonical SMAP run yields point-adjust F1=0.4355, precision=1.0, recall=0.2784, ROC AUC=0.5466, and Average Precision=0.1606. Test labels are now used only for final evaluation.
+**About the SMAP numbers.** The earlier SMAP F1 of 0.97 came from a decision threshold optimized on held-out test labels, so it was an oracle diagnostic, not deployable performance. The 0.44 that replaced it was a scoring artifact: the old global-FFT saliency changed scale with input length and exploded near exactly-zero spectral bins, so only 28 of 427k test points could ever be flagged. The detector now computes saliency over fixed-length blocks (orthonormal IFFT, relative spectral floor). The canonical run (threshold from normal training scores only, `contamination=0.10`) gives ROC AUC=0.6053, Average Precision=0.1613 (prevalence 0.128), and point-adjust F1=0.6378 (precision 0.47, recall 0.99). A random detector at the same 17% alert rate also reaches PA-F1≈0.63, so the ranking metrics are the honest SMAP numbers, and the regression gate uses ROC AUC.
 
 ## Installation
 
