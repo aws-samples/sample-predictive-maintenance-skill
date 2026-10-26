@@ -215,7 +215,7 @@ Steps: discover bucket structure → explore schemas → validate join keys → 
 1. **Formulation** — confirm the recommended formulation (multi-label, binary, RUL, survival). Propose based on data evidence but get explicit confirmation.
 2. **Prediction window (horizon)** — how many days ahead should the model predict? This is an operational decision only the user can make (e.g., 7 days, 14 days, 30 days). It depends on maintenance lead times, not data properties.
 3. **Feature scope** — which tables/data sources to use as input features? List all available tables and ask the user to confirm which ones to include. Do NOT assume — some tables may be supplementary context only, not model inputs.
-4. **Optimization priority** — does the user prioritize recall (catch all failures), precision (minimize false alarms), or balanced F1? This affects training eval metric and threshold selection.
+4. **Optimization priority** — does the user prioritize recall (catch all failures), precision (minimize false alarms), or balanced F1? For classification, this maps to F2 (recall-emphasis), F0.5 (precision-emphasis), or F1 (balanced). AutoGluon selects the binary decision threshold on its internal validation data for that objective; final test labels are evaluation-only.
 5. **Anomaly detection** — also build an unsupervised model? Recommend based on data dimensionality.
 
 **The agent MUST present these questions and STOP — do not fill in answers by assumption, even if the user's initial prompt seems to imply them.** The user may have additional context (operational constraints, business requirements, lead times) that changes the "obvious" answer.

@@ -239,7 +239,8 @@ uv run python pdm/fault_prediction/train.py \
     --test ./experiments/00_baseline/data/test.csv \
     --output ./experiments/00_baseline/model \
     --time-limit 120 \
-    --presets best
+    --presets best \
+    --optimization-priority balanced
 ```
 
 | Argument | Default | Description |
@@ -249,6 +250,7 @@ uv run python pdm/fault_prediction/train.py \
 | `--output` | `./model` | Output directory |
 | `--time-limit` | `120` | Training time budget in seconds |
 | `--presets` | `best` | AutoGluon presets (`best`, `medium_quality`, etc.) |
+| `--optimization-priority` | `balanced` | Classification operating point: `balanced` → F1, `recall` → F2, `precision` → F0.5. AutoGluon calibrates the binary decision threshold on internal validation data. |
 
 **Output artefacts:**
 - `ag_model/` — AutoGluon model directory

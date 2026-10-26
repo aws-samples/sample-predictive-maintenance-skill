@@ -146,12 +146,10 @@ and dropped it by hand in the loader. There is currently no leakage guidance in
   the target, and surfaces it for the user to confirm dropping.
 
 ### R7 — Deliver the threshold selection the docs already promise
-Phase-2 item 4 ([SKILL.md:218](../../SKILL.md)) says the recall/precision/F1
-optimization priority "affects … threshold selection," but the classification
-pipeline only ever reports metrics at the default 0.5 threshold — there is no
-threshold selection step. Either implement operating-point selection (tie it to
-the stated priority) or soften the doc. R2 provides the probabilities needed to
-do the former.
+
+> **Status: implemented by this change.** Classification now maps balanced / recall / precision priorities to F1 / F2 / F0.5 objectives and uses AutoGluon's internal validation data to calibrate the deployable binary decision threshold. The selected threshold is persisted and reported in metrics; final test labels remain evaluation-only.
+
+Phase-2 item 4 ([SKILL.md:218](../../SKILL.md)) asks for an operating priority that affects both model selection and threshold selection. The implementation deliberately uses F2 and F0.5 for recall- and precision-emphasis instead of maximizing pure recall or precision, which can produce degenerate all-positive or almost-all-negative operating points.
 
 ### R8 — Lower-priority polish
 - **Memory pre-flight for the temporal detector:** estimate
