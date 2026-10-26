@@ -5,16 +5,25 @@ Residual (SR) method detects anomalies by identifying unexpected spectral
 patterns. This implementation uses:
 
 1. StandardScaler normalization
-2. Per-feature FFT → Spectral Residual → IFFT (frequency-domain saliency)
+2. Per-feature, block-wise FFT → Spectral Residual → IFFT (frequency-domain
+   saliency over fixed-length blocks of ``sr_block_size`` samples)
 3. Z-scoring SR scores against training distribution (calibrates per-feature)
 4. Percentile aggregation across features (robust to noise)
 5. Training-score percentile threshold (no test-label calibration)
 
 Key insight: The Spectral Residual highlights time points where the frequency
-content deviates from the local spectral average. For SMAP-style data where
-channels are concatenated, the global FFT captures periodic patterns unique to
-each channel's segment, making SR useful for detecting anomalous departures
-from normal periodicity.
+content deviates from the local spectral average. Computing it over fixed-length
+blocks keeps saliency local and makes scores independent of how many rows are
+passed to ``train()``/``predict()``. The IFFT uses orthonormal scaling and the
+log-spectrum uses a floor relative to the block's mean magnitude, so exactly-zero
+spectral bins (common for binary or exactly periodic channels) cannot blow up the
+residual.
+
+Scoring version 2 (current) fixes two defects of the original global-FFT
+implementation: saliency scaled as 1/N with input length, and an absolute
+``1e-8`` log floor produced residuals of ~exp(18) next to zero bins. Together they
+put training and test scores on incompatible scales (on NASA SMAP only 28 of
+427k test points could ever cross the training-derived threshold).
 
 Reference: Ren, H. et al. "Time-Series Anomaly Detection Service at Microsoft"
 (SR-CNN), KDD 2019. Our implementation adds z-score normalization against
@@ -32,6 +41,14 @@ from sklearn.preprocessing import StandardScaler
 from scipy.ndimage import uniform_filter1d
 
 from pdm.base import PDMModel, PredictionResult, TrainResult
+
+# Version of the saliency computation persisted with saved models. Bump when the
+# score scale changes so stale artifacts (whose threshold/z-score statistics were
+# computed on a different scale) are rejected instead of silently misbehaving.
+SCORE_VERSION = 2
+
+# Log-spectrum floor as a fraction of the block's mean FFT magnitude.
+_SPECTRAL_FLOOR = 0.1
 
 
 class SpectralResidualDetector(PDMModel):
@@ -54,6 +71,11 @@ class SpectralResidualDetector(PDMModel):
         contamination: Expected anomaly fraction used to select the threshold
             from the normal training-score distribution.
         scoring: Legacy parameter for API compatibility ('max' or 'percentile').
+        sr_block_size: Length (in samples) of the non-overlapping blocks the
+            FFT is computed over. Scores depend only on the block a point falls
+            in, so they are comparable across inputs of any length. Predict on
+            batches of at least this many rows for the frequency resolution the
+            model was calibrated with; shorter batches are scored as one block.
     """
 
     formulation = "anomaly_detection"
@@ -64,10 +86,14 @@ class SpectralResidualDetector(PDMModel):
         aggregation_percentile: float = 95,
         contamination: float = 0.10,
         scoring: str = "percentile",
+        sr_block_size: int = 256,
     ):
+        if sr_block_size < 2:
+            raise ValueError(f"sr_block_size must be >= 2, got {sr_block_size}")
         self.sr_window = sr_window
         self.aggregation_percentile = aggregation_percentile
         self.contamination = contamination
+        self.sr_block_size = sr_block_size
         self.scoring = scoring
 
         self.scaler: Optional[StandardScaler] = None
@@ -86,7 +112,8 @@ class SpectralResidualDetector(PDMModel):
             train_df: Training data (assumed normal/healthy).
             test_df: Held-out data used only for anomaly-rate evaluation. Labels
                 do not influence model fitting or threshold calibration.
-            **kwargs: Optional overrides (sr_window, aggregation_percentile, contamination).
+            **kwargs: Optional overrides (sr_window, aggregation_percentile,
+                contamination, sr_block_size).
 
         Returns:
             TrainResult with spectral-residual-based metrics.
@@ -95,6 +122,7 @@ class SpectralResidualDetector(PDMModel):
         sr_window = kwargs.get("sr_window", self.sr_window)
         aggregation_percentile = kwargs.get("aggregation_percentile", self.aggregation_percentile)
         contamination = kwargs.get("contamination", self.contamination)
+        sr_block_size = kwargs.get("sr_block_size", self.sr_block_size)
 
         feature_cols = self._select_features(train_df)
         self.feature_names = feature_cols
@@ -105,7 +133,7 @@ class SpectralResidualDetector(PDMModel):
         test_scaled = self.scaler.transform(test_df[feature_cols].fillna(0).values)
 
         # Compute per-feature SR on training data
-        train_sr = self._spectral_residual_per_feature(train_scaled, sr_window)
+        train_sr = self._spectral_residual_per_feature(train_scaled, sr_window, sr_block_size)
         self._train_sr_mean = train_sr.mean(axis=0)
         self._train_sr_std = train_sr.std(axis=0) + 1e-8
 
@@ -114,7 +142,7 @@ class SpectralResidualDetector(PDMModel):
         train_scores = np.percentile(train_zscored, aggregation_percentile, axis=1)
 
         # Z-score test SR scores
-        test_sr = self._spectral_residual_per_feature(test_scaled, sr_window)
+        test_sr = self._spectral_residual_per_feature(test_scaled, sr_window, sr_block_size)
         test_zscored = (test_sr - self._train_sr_mean) / self._train_sr_std
         test_scores = np.percentile(test_zscored, aggregation_percentile, axis=1)
 
@@ -130,12 +158,14 @@ class SpectralResidualDetector(PDMModel):
             "test_anomaly_rate": test_anomaly_rate,
             "sr_window": sr_window,
             "aggregation_percentile": aggregation_percentile,
+            "sr_block_size": sr_block_size,
         }
 
         # Store effective params
         self.sr_window = sr_window
         self.aggregation_percentile = aggregation_percentile
         self.contamination = contamination
+        self.sr_block_size = sr_block_size
 
         return TrainResult(
             model=None,  # No sklearn model to store; state is in _train_sr_mean/std
@@ -147,6 +177,8 @@ class SpectralResidualDetector(PDMModel):
                 "sr_window": sr_window,
                 "aggregation_percentile": aggregation_percentile,
                 "contamination": contamination,
+                "sr_block_size": sr_block_size,
+                "score_version": SCORE_VERSION,
                 "scoring": self.scoring,
             },
         )
@@ -161,7 +193,7 @@ class SpectralResidualDetector(PDMModel):
             PredictionResult with anomaly_score and is_anomaly columns.
         """
         X = self.scaler.transform(features[self.feature_names].fillna(0).values)
-        sr = self._spectral_residual_per_feature(X, self.sr_window)
+        sr = self._spectral_residual_per_feature(X, self.sr_window, self.sr_block_size)
         zscored = (sr - self._train_sr_mean) / self._train_sr_std
         scores = np.percentile(zscored, self.aggregation_percentile, axis=1)
 
@@ -176,7 +208,7 @@ class SpectralResidualDetector(PDMModel):
         Returns the features with highest z-scored SR scores at each timestep.
         """
         X = self.scaler.transform(features[self.feature_names].fillna(0).values)
-        sr = self._spectral_residual_per_feature(X, self.sr_window)
+        sr = self._spectral_residual_per_feature(X, self.sr_window, self.sr_block_size)
         zscored = (sr - self._train_sr_mean) / self._train_sr_std
 
         results = []
@@ -204,19 +236,36 @@ class SpectralResidualDetector(PDMModel):
             "sr_window": self.sr_window,
             "aggregation_percentile": self.aggregation_percentile,
             "contamination": self.contamination,
+            "sr_block_size": self.sr_block_size,
+            "score_version": SCORE_VERSION,
             "scoring": self.scoring,
         }, indent=2))
 
     @classmethod
     def load(cls, path: Path) -> "SpectralResidualDetector":
-        """Load model from directory."""
+        """Load model from directory.
+
+        Raises:
+            ValueError: If the artifact was saved with an older scoring version.
+                Its threshold and z-score statistics are on an incompatible
+                scale, so the model must be retrained.
+        """
         path = Path(path)
         meta = json.loads((path / "metadata.json").read_text())
+        saved_version = meta.get("score_version", 1)
+        if saved_version != SCORE_VERSION:
+            raise ValueError(
+                f"SpectralResidualDetector artifact at {path} uses score_version="
+                f"{saved_version}, but this library computes score_version="
+                f"{SCORE_VERSION}. Its threshold and z-score statistics are on an "
+                "incompatible scale; retrain the model."
+            )
         obj = cls(
             sr_window=meta.get("sr_window", 5),
             aggregation_percentile=meta.get("aggregation_percentile", 95),
             contamination=meta.get("contamination", 0.10),
             scoring=meta.get("scoring", "percentile"),
+            sr_block_size=meta["sr_block_size"],
         )
         obj.scaler = joblib.load(path / "scaler.joblib")
         obj._train_sr_mean = np.load(path / "train_sr_mean.npy")
@@ -230,37 +279,51 @@ class SpectralResidualDetector(PDMModel):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _spectral_residual_per_feature(data: np.ndarray, sr_window: int) -> np.ndarray:
-        """Compute per-feature spectral residual saliency map.
+    def _spectral_residual_per_feature(
+        data: np.ndarray, sr_window: int, block_size: int = 256
+    ) -> np.ndarray:
+        """Compute per-feature spectral residual saliency map, block by block.
 
-        For each feature:
+        The series is split into consecutive non-overlapping blocks of
+        ``block_size`` samples (a trailing remainder shorter than half a block is
+        merged into the previous block). For each block and feature:
+
         1. Compute FFT
-        2. Log-magnitude spectrum
+        2. Log-magnitude spectrum, floored at ``_SPECTRAL_FLOOR`` x the block's
+           mean magnitude so exactly-zero bins cannot dominate the residual
         3. Spectral residual = log_mag - moving_average(log_mag)
-        4. Reconstruct time-domain saliency via IFFT
+        4. Reconstruct time-domain saliency via orthonormal IFFT, which keeps
+           the saliency scale independent of the block length
 
         Args:
             data: Array of shape (n_samples, n_features).
             sr_window: Moving average window for spectral smoothing.
+            block_size: FFT block length in samples.
 
         Returns:
             Array of shape (n_samples, n_features) with SR saliency scores.
         """
-        n_samples, n_feat = data.shape
-        feature_scores = np.zeros((n_samples, n_feat))
+        n_samples = data.shape[0]
+        feature_scores = np.zeros(data.shape, dtype=float)
+        if n_samples == 0:
+            return feature_scores
 
-        for f in range(n_feat):
-            x = data[:, f]
-            freq = np.fft.fft(x)
+        starts = list(range(0, n_samples, block_size))
+        if len(starts) > 1 and n_samples - starts[-1] < block_size // 2:
+            starts.pop()  # merge short trailing remainder into the previous block
+        ends = starts[1:] + [n_samples]
+
+        for start, end in zip(starts, ends):
+            freq = np.fft.fft(data[start:end], axis=0)
             mag = np.abs(freq)
-            log_mag = np.log(mag + 1e-8)
+            floor = np.maximum(_SPECTRAL_FLOOR * mag.mean(axis=0, keepdims=True), 1e-8)
+            log_mag = np.log(mag + floor)
             # Spectral residual: deviation from local spectral average
-            avg_log = uniform_filter1d(log_mag, size=sr_window)
+            avg_log = uniform_filter1d(log_mag, size=sr_window, axis=0)
             sr = log_mag - avg_log
-            # Map back to time domain saliency via IFFT
-            phase = np.angle(freq)
-            sr_freq = np.exp(sr) * np.exp(1j * phase)
-            feature_scores[:, f] = np.abs(np.fft.ifft(sr_freq)) ** 2
+            # Map back to time domain saliency via orthonormal IFFT
+            sr_freq = np.exp(sr) * np.exp(1j * np.angle(freq))
+            feature_scores[start:end] = np.abs(np.fft.ifft(sr_freq, axis=0, norm="ortho")) ** 2
 
         return feature_scores
 

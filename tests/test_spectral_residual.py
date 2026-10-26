@@ -167,3 +167,98 @@ class TestSaveLoad:
         assert meta["method"] == "spectral_residual"
         assert meta["sr_window"] == 5
         assert meta["aggregation_percentile"] == 95
+
+    def test_metadata_records_block_size_and_score_version(
+        self, temporal_train_df, temporal_test_df, tmp_path
+    ):
+        from pdm.anomaly_detection.spectral_residual import SCORE_VERSION
+
+        model_dir = tmp_path / "model"
+        model = SpectralResidualDetector(sr_window=5, sr_block_size=64)
+        model.train(temporal_train_df, temporal_test_df)
+        model.save(model_dir)
+
+        meta = json.loads((model_dir / "metadata.json").read_text())
+        assert meta["sr_block_size"] == 64
+        assert meta["score_version"] == SCORE_VERSION
+        assert SpectralResidualDetector.load(model_dir).sr_block_size == 64
+
+    def test_load_rejects_legacy_score_scale(self, temporal_train_df, temporal_test_df, tmp_path):
+        """Artifacts from the old global-FFT scoring must be retrained, not reused."""
+        model_dir = tmp_path / "model"
+        model = SpectralResidualDetector(sr_window=5)
+        model.train(temporal_train_df, temporal_test_df)
+        model.save(model_dir)
+
+        meta_path = model_dir / "metadata.json"
+        meta = json.loads(meta_path.read_text())
+        del meta["score_version"]
+        del meta["sr_block_size"]
+        meta_path.write_text(json.dumps(meta))
+
+        with pytest.raises(ValueError, match="score_version"):
+            SpectralResidualDetector.load(model_dir)
+
+
+def _normal_process(n: int, seed: int) -> pd.DataFrame:
+    """Stationary normal-only process with a noisy sinusoid and an exactly periodic
+    binary channel (the latter has exactly-zero FFT bins, like many SMAP channels)."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n)
+    return pd.DataFrame({
+        "sensor_sine": np.sin(2 * np.pi * t / 37) + rng.normal(0, 0.3, n),
+        "sensor_noise": rng.normal(0, 1, n),
+        "sensor_binary": ((t // 8) % 2).astype(float),
+    })
+
+
+class TestScoreScale:
+    """Scores must be on the same scale regardless of input length (regression for
+    the global-FFT implementation whose saliency scaled with 1/N and whose absolute
+    log floor exploded next to exactly-zero spectral bins)."""
+
+    CONTAMINATION = 0.10
+
+    @pytest.fixture
+    def trained(self):
+        train_df = _normal_process(2048, seed=0)
+        model = SpectralResidualDetector(
+            sr_window=5, contamination=self.CONTAMINATION, sr_block_size=256
+        )
+        model.train(train_df, _normal_process(512, seed=1))
+        return model
+
+    def test_longer_normal_series_alert_rate_matches_contamination(self, trained):
+        """A 4x longer normal series must alert at roughly the configured rate."""
+        test_df = _normal_process(8192, seed=2)
+        alert_rate = trained.predict(test_df[trained.feature_names]).predictions["is_anomaly"].mean()
+        assert self.CONTAMINATION / 2 < alert_rate < self.CONTAMINATION * 2
+
+    def test_block_aligned_batches_match_full_series_scores(self, trained):
+        """Scoring in block-sized batches (streaming) equals scoring the whole series."""
+        test_df = _normal_process(2048, seed=3)[trained.feature_names]
+        full = trained.predict(test_df).predictions["anomaly_score"].values
+        batched = np.concatenate([
+            trained.predict(test_df.iloc[i:i + 256]).predictions["anomaly_score"].values
+            for i in range(0, len(test_df), 256)
+        ])
+        np.testing.assert_allclose(batched, full)
+
+    def test_short_batches_do_not_explode(self, trained):
+        """Batches shorter than the block stay on the calibrated scale."""
+        test_df = _normal_process(2048, seed=4)[trained.feature_names]
+        batched = np.concatenate([
+            trained.predict(test_df.iloc[i:i + 64]).predictions["is_anomaly"].values
+            for i in range(0, len(test_df), 64)
+        ])
+        assert batched.mean() < self.CONTAMINATION * 3
+
+    def test_short_trailing_remainder_merged_into_previous_block(self):
+        data = np.random.default_rng(0).normal(size=(256 + 10, 2))
+        merged = SpectralResidualDetector._spectral_residual_per_feature(data, 5, 256)
+        single = SpectralResidualDetector._spectral_residual_per_feature(data, 5, 10_000)
+        np.testing.assert_allclose(merged, single)
+
+    def test_invalid_block_size_rejected(self):
+        with pytest.raises(ValueError, match="sr_block_size"):
+            SpectralResidualDetector(sr_block_size=1)
