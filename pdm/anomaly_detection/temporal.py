@@ -7,7 +7,7 @@ approach dramatically outperforms point-wise Isolation Forest. This module uses:
 2. Sliding-window PCA reconstruction error (captures temporal patterns)
 3. Per-feature z-scoring of reconstruction errors (catches localized anomalies)
 4. Temporal smoothing (correlated scores within anomaly segments)
-5. Optimal threshold search (maximizes point-adjust F1)
+5. Training-score percentile threshold (no test-label calibration)
 
 Key insight: Point-adjust evaluation credits an entire anomaly segment if ANY
 point is detected. Temporal smoothing + reconstruction naturally produces high
@@ -70,7 +70,8 @@ class TemporalAnomalyDetector(PDMModel):
 
         Args:
             train_df: Training data (assumed normal/healthy).
-            test_df: Test data with potential anomalies (used for threshold calibration).
+            test_df: Held-out data used only for anomaly-rate evaluation. Labels
+                do not influence model fitting or threshold calibration.
             **kwargs: Optional overrides (window_size, smooth_window, contamination).
 
         Returns:
@@ -118,16 +119,9 @@ class TemporalAnomalyDetector(PDMModel):
         ).astype(np.float32, copy=False)
         test_scores = self._score_array(test_scaled, window_size, smooth_window)
 
-        # Set threshold based on contamination
-        # Use training score distribution (all normal) as reference
+        # Set the deployable threshold from the normal training-score
+        # distribution only. Held-out/test labels must never influence model state.
         self.threshold = float(np.percentile(train_scores, (1 - contamination) * 100))
-
-        # If test labels available, try to find optimal threshold
-        if "label" in test_df.columns:
-            y_true = test_df["label"].values.astype(int)
-            opt_thresh = self._optimize_threshold(test_scores, y_true)
-            if opt_thresh is not None:
-                self.threshold = opt_thresh
 
         test_anomaly_rate = float((test_scores > self.threshold).mean())
 
@@ -309,7 +303,12 @@ class TemporalAnomalyDetector(PDMModel):
 
     def _optimize_threshold(self, scores: np.ndarray, y_true: np.ndarray,
                             n_candidates: int = 300) -> Optional[float]:
-        """Find threshold that maximizes point-adjust F1 on labeled data."""
+        """Find an oracle point-adjust-F1 threshold for diagnostics only.
+
+        This helper intentionally remains available for offline analysis, but
+        ``train()`` never uses labeled held-out/test data to set the deployable
+        model threshold.
+        """
         lo = np.percentile(scores, 50)
         hi = np.percentile(scores, 99.5)
         if lo >= hi:

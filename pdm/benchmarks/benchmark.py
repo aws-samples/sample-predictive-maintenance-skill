@@ -93,42 +93,55 @@ def run_smap(data_dir: Path, time_limit: int = 300) -> dict:
     normalization) which captures spectral anomalies critical for segment-based
     anomaly detection under point-adjust evaluation.
 
-    The spectral residual method computes per-feature FFT saliency, z-scores
-    against training distribution, and aggregates using a robust percentile.
-    This achieves F1~0.97 vs 0.73 for temporal PCA reconstruction.
+    The detector threshold is calibrated from normal training scores only.
+    Test labels are reserved for final evaluation. Threshold-independent ROC AUC
+    and Average Precision are reported alongside point-adjust operating metrics.
     """
-    from sklearn.metrics import f1_score, precision_score, recall_score
+    from sklearn.metrics import (
+        average_precision_score,
+        f1_score,
+        precision_score,
+        recall_score,
+        roc_auc_score,
+    )
     from pdm.anomaly_detection.spectral_residual import SpectralResidualDetector
 
     train_df = pd.read_csv(data_dir / "raw_train.csv")
     test_df = pd.read_csv(data_dir / "raw_test.csv")
 
-    # Determine contamination from test label ratio
-    anomaly_ratio = test_df["label"].mean()
-
     model = SpectralResidualDetector(
         sr_window=5,
         aggregation_percentile=95,
-        contamination=min(anomaly_ratio, 0.15),
+        contamination=0.10,
         scoring="percentile",
     )
-    result = model.train(train_df, test_df, time_limit=time_limit)
+    model.train(train_df, test_df, time_limit=time_limit)
 
     # Generate predictions on test set
     feature_cols = model.feature_names
     pred_result = model.predict(test_df[feature_cols])
     y_pred = pred_result.predictions["is_anomaly"].values
+    y_score = pred_result.predictions["anomaly_score"].values
     y_true = test_df["label"].values
 
     # Point-adjust F1: if any point in a contiguous anomaly segment is detected,
-    # mark the entire segment as correctly detected
+    # mark the entire segment as correctly detected. This adjustment is used only
+    # for operating-point metrics; ranking metrics use the raw anomaly scores.
     y_pred_adjusted = _point_adjust(y_true, y_pred)
 
     f1 = float(f1_score(y_true, y_pred_adjusted))
     precision = float(precision_score(y_true, y_pred_adjusted, zero_division=0))
     recall = float(recall_score(y_true, y_pred_adjusted, zero_division=0))
+    roc_auc = float(roc_auc_score(y_true, y_score))
+    average_precision = float(average_precision_score(y_true, y_score))
 
-    return {"f1": f1, "precision": precision, "recall": recall}
+    return {
+        "f1": f1,
+        "precision": precision,
+        "recall": recall,
+        "roc_auc": roc_auc,
+        "average_precision": average_precision,
+    }
 
 
 def run_hdfail(data_dir: Path, time_limit: int = 300) -> dict:

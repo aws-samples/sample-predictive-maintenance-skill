@@ -27,7 +27,7 @@ Choose the anomaly detection model based on the data characteristics:
 | **Multivariate time-series** (when SR doesn't fit) | `TemporalAnomalyDetector` | Data has temporal structure but no periodic patterns (e.g., monotonically degrading signals) |
 | **Tabular / point-wise features** | `AnomalyDetector` (Isolation Forest) | No temporal dependency, each row is independent (e.g., pre-aggregated daily features) |
 
-**Default for time-series data**: Use `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` — it achieves F1=0.97 on NASA SMAP vs 0.73 for PCA reconstruction.
+**Default for time-series data**: Start with `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` and evaluate it against the anomaly-detection quality gate below. Do not tune its deployable threshold on held-out/test labels.
 
 **How SpectralResidualDetector works:**
 1. Compute FFT per feature → log-magnitude spectrum
@@ -35,7 +35,7 @@ Choose the anomaly detection model based on the data characteristics:
 3. IFFT back to time domain → per-feature saliency scores
 4. Z-score against training distribution (calibrates per-feature sensitivity)
 5. P95 percentile aggregation across features (robust to noisy features)
-6. Optimal threshold search on labeled data (or contamination-based without labels)
+6. Select the decision threshold from the normal training-score distribution using `contamination`; held-out/test labels are evaluation-only
 
 **When to use TemporalAnomalyDetector instead:**
 - Data is non-stationary with trends (SR assumes stationarity within each signal)
@@ -93,10 +93,11 @@ uv run python pdm/anomaly_detection/train_anomaly.py \
     --output ./anomaly_detection/baseline/model --contamination 0.05
 ```
 
-**Contamination parameter** (fraction of anomalies expected in training data):
-- If training labels exist and positive rate is known → use that rate
-- If no labels → default 5%
-- For very clean data → try 0.01–0.02
+**Contamination parameter** (fraction of anomalies expected in the score distribution):
+- Set it from prior/domain knowledge or a dedicated validation/calibration split — never from final test labels
+- If no prior estimate is available → start with the documented model default and report sensitivity
+- Smaller contamination selects a higher training-score percentile (fewer alerts)
+- Larger contamination selects a lower training-score percentile (more alerts)
 
 ### Evaluation
 
@@ -190,16 +191,18 @@ def main():
 |--------|-------------|
 | `anomaly_score` | Isolation Forest anomaly score (higher = more anomalous) |
 | `is_anomaly` | Binary flag: 1 if score > threshold |
-| `threshold` | Decision threshold (from training) |
+| `threshold` | Decision threshold (from training/calibration data, never final test labels) |
 | `top_anomalous_features` | Semicolon-separated list of `feature(z=N)` — top features by z-score deviation from baseline |
 
 ### Adjusting Contamination
 
 | Symptom | Adjustment |
 |---------|------------|
-| Too many false positives (>15% anomaly rate on test) | Increase contamination → raises threshold |
-| Synthetic detection < 80% | Decrease contamination → lower threshold, check feature quality |
+| Too many false positives (>15% anomaly rate on validation data) | Decrease contamination → raises threshold |
+| Too few alerts / poor validation recall | Increase contamination → lowers threshold |
 | Score distribution is bimodal | Data has distinct operating regimes — consider per-regime AD |
+
+Use a dedicated validation/calibration split for these adjustments. Do not inspect final test labels while selecting `contamination` or the threshold.
 
 ### Output Artefacts
 
@@ -232,6 +235,7 @@ y_anomaly = test[physical_labels].max(axis=1)  # 1 if any physical fault
 ### Pitfalls
 
 - Don't filter the test set — keep mixed normal + anomaly
+- Don't use final test labels to choose contamination or optimize the deployable threshold
 - Don't use AD scores as features in fault prediction — keep models independent
 - Don't skip evaluation — it produces the quality gate and score_distribution.png
 

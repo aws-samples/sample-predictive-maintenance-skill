@@ -6,6 +6,7 @@ import json
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.metrics import roc_auc_score
 
 from pdm.anomaly_detection.spectral_residual import SpectralResidualDetector
 from pdm.base import TrainResult, PredictionResult
@@ -102,14 +103,16 @@ class TestPredict:
         result = model.predict(temporal_test_df[model.feature_names])
         assert set(result.predictions["is_anomaly"].unique()).issubset({0, 1})
 
-    def test_detects_anomaly_segment(self, temporal_train_df, temporal_test_df):
-        """The injected spike segment should be at least partially detected."""
+    def test_anomaly_segment_scores_rank_above_normal(self, temporal_train_df, temporal_test_df):
+        """Injected spikes should rank above normal points without test-label calibration."""
         model = SpectralResidualDetector(sr_window=5, contamination=0.2)
         model.train(temporal_train_df, temporal_test_df)
         result = model.predict(temporal_test_df[model.feature_names])
-        # At least some anomalies should be flagged in the spike region (50-70)
-        anomaly_in_segment = result.predictions["is_anomaly"].iloc[50:70].sum()
-        assert anomaly_in_segment > 0
+        auc = roc_auc_score(
+            temporal_test_df["label"].values,
+            result.predictions["anomaly_score"].values,
+        )
+        assert auc > 0.9
 
 
 class TestExplain:

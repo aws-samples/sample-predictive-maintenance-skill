@@ -69,7 +69,7 @@ Results from running the full skill workflow (Phases 1–5: setup → data prep 
 | C-MAPSS FD001 (RUL) | RMSE ↓ | **11.40** | 9.21 (AutoRUL) | +24% gap; feature selection + XGBoost HPO |
 | AI4I 2020 (Classification) | F1 ↑ | **0.889** | ~0.99 (FL+SMOTE) | -10% gap; closes with SMOTE |
 | Backblaze hdfail (Survival) | C-index ↑ | **0.88** | 0.958 (Cox, 21 feats) | 52K drives, 94% censoring |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.97** | ~0.90 (THOC/TranAD) | Spectral Residual; **exceeds SOTA** |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | **0.44** | ~0.90 (THOC/TranAD) | Spectral Residual; training-only threshold, no test-label calibration |
 
 **Baselines** (Phase 4 only — no experimentation, default model, no feature engineering):
 
@@ -78,11 +78,11 @@ Results from running the full skill workflow (Phases 1–5: setup → data prep 
 | C-MAPSS FD001 (RUL) | RMSE ↓ | 16.48 | `RULPredictor(window_size=15, stride=5, presets=medium_quality)` |
 | AI4I 2020 (Classification) | F1 ↑ | 0.82 | `FailureClassifier()` with default features |
 | Backblaze hdfail (Survival) | C-index ↑ | 0.88 | `SurvivalPredictor()` — 52K drives, 94% censoring |
-| NASA SMAP (Anomaly Detection) | F1 ↑ | 0.97 | `SpectralResidualDetector(sr_window=5, aggregation_percentile=95)` |
+| NASA SMAP (Anomaly Detection) | F1 ↑ | 0.44 | `SpectralResidualDetector(sr_window=5, aggregation_percentile=95, contamination=0.10)` |
 
 The baselines in `pdm/benchmarks/baselines.json` are regression gates — they ensure code changes don't degrade the out-of-the-box model quality. The "Best Result" column reflects what the skill achieves when the full experimentation loop (Phase 5) runs with domain-informed feature engineering.
 
-The library achieves competitive results with minimal configuration. The RUL gap is primarily a model diversity issue (AutoRUL searches over SVR/KNN in addition to tree ensembles). The classification gap closes with SMOTE and threshold tuning. The anomaly detection F1 improved from 0.73 to 0.97 (+33%) by switching from temporal PCA reconstruction (`TemporalAnomalyDetector`) to Spectral Residual frequency-domain analysis (`SpectralResidualDetector`). The SR method computes per-feature FFT saliency, z-scores against training distribution, and aggregates using a robust percentile — achieving results that exceed published SOTA on SMAP without requiring deep learning or GPU.
+The previous SMAP F1 value of 0.97 was produced with a decision threshold optimized using held-out test labels, so it represented oracle diagnostic performance rather than deployable performance. With the threshold calibrated only from normal training scores (`contamination=0.10`), the canonical SMAP run yields point-adjust F1=0.4355, precision=1.0, recall=0.2784, ROC AUC=0.5466, and Average Precision=0.1606. Test labels are now used only for final evaluation.
 
 ## Installation
 
