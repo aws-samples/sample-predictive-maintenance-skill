@@ -11,6 +11,7 @@ from pdm.remote import train_multilabel, train_remote
 class _FakePredictor:
     positive_class = 1
     model_best = "FakeModel"
+    decision_threshold = 0.37
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -50,7 +51,14 @@ def test_remote_binary_training_emits_ranking_metrics(monkeypatch, tmp_path):
     train_df.to_csv(data_dir / "raw_train.csv", index=False)
     test_df.to_csv(data_dir / "raw_test.csv", index=False)
 
-    monkeypatch.setenv("SM_HPS", json.dumps({"formulation": "classification", "time-limit": 1}))
+    monkeypatch.setenv(
+        "SM_HPS",
+        json.dumps({
+            "formulation": "classification",
+            "time-limit": 1,
+            "optimization-priority": "recall",
+        }),
+    )
     monkeypatch.setenv("SM_CHANNEL_TRAIN", str(data_dir))
     monkeypatch.setenv("SM_MODEL_DIR", str(model_dir))
     monkeypatch.setenv("SM_OUTPUT_DATA_DIR", str(output_dir))
@@ -61,6 +69,9 @@ def test_remote_binary_training_emits_ranking_metrics(monkeypatch, tmp_path):
     assert metrics["f1"] == 0.0
     assert metrics["roc_auc"] == pytest.approx(1.0)
     assert metrics["average_precision"] == pytest.approx(1.0)
+    assert metrics["optimization_priority"] == "recall"
+    assert metrics["eval_metric"] == "f2"
+    assert metrics["decision_threshold"] == pytest.approx(0.37)
 
 
 def test_remote_multilabel_training_emits_ranking_metrics(monkeypatch, tmp_path, capsys):
@@ -82,7 +93,12 @@ def test_remote_multilabel_training_emits_ranking_metrics(monkeypatch, tmp_path,
 
     monkeypatch.setenv(
         "SM_HPS",
-        json.dumps({"time-limit": 1, "presets": "medium_quality", "workers": 1}),
+        json.dumps({
+            "time-limit": 1,
+            "presets": "medium_quality",
+            "workers": 1,
+            "optimization-priority": "precision",
+        }),
     )
     monkeypatch.setenv("SM_CHANNEL_TRAIN", str(data_dir))
     monkeypatch.setenv("SM_MODEL_DIR", str(model_dir))
@@ -96,6 +112,9 @@ def test_remote_multilabel_training_emits_ranking_metrics(monkeypatch, tmp_path,
     assert label_metrics["test_average_precision"] == pytest.approx(1.0)
     assert metrics["mean_test_roc_auc"] == pytest.approx(1.0)
     assert metrics["mean_test_average_precision"] == pytest.approx(1.0)
+    assert metrics["optimization_priority"] == "precision"
+    assert label_metrics["eval_metric"] == "f0.5"
+    assert label_metrics["decision_threshold"] == pytest.approx(0.37)
 
     output = capsys.readouterr().out
     assert "✅ Metrics: mean_f1=0.0, median_f1=0.0" in output
