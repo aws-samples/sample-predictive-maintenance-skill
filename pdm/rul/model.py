@@ -1,6 +1,7 @@
 """RUL Predictor — remaining useful life estimation with sliding window features."""
 
 import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -75,6 +76,10 @@ class RULPredictor(PDMModel):
         self.predictor = None
         self.feature_names: list[str] = []
         self.sensor_cols: list[str] = []
+        self.backend = "autogluon"
+        # Per-sensor normalization learned in train(); applied in predict() to raw series.
+        self._feat_mean: pd.Series | None = None
+        self._feat_std: pd.Series | None = None
 
     def train(self, train_df: pd.DataFrame, test_df: pd.DataFrame, **kwargs) -> TrainResult:
         """Train RUL model with sliding window features.
@@ -86,6 +91,7 @@ class RULPredictor(PDMModel):
         time_limit = kwargs.get("time_limit", 600)
         presets = kwargs.get("presets", "best")
         backend = kwargs.get("backend", "autogluon")
+        self.backend = backend
         n_trials = kwargs.get("n_trials", 50)
         stride = kwargs.get("stride", 1)
         drop_constant = kwargs.get("drop_constant_sensors", True)
@@ -324,9 +330,13 @@ class RULPredictor(PDMModel):
         raise ValueError(f"Unknown algorithm: {algo}")
 
     def predict(self, features: pd.DataFrame) -> PredictionResult:
-        """Predict RUL. Accepts either pre-computed window features or raw time-series."""
+        """Predict RUL. Accepts either pre-computed window features or raw time-series.
+
+        Raw time-series are normalized with the per-sensor statistics learned in
+        ``train()`` before window features are computed, exactly as during training.
+        """
         if "unit_id" in features.columns and any(c in features.columns for c in self.sensor_cols):
-            X = self._last_window_features(features, "unit_id")
+            X = self._last_window_features(self._normalize(features), "unit_id")
         else:
             X = features
 
@@ -374,17 +384,37 @@ class RULPredictor(PDMModel):
             pass
         return []
 
+    def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply the training-time sensor normalization (no-op for legacy models)."""
+        if self._feat_mean is None or self._feat_std is None:
+            return df
+        cols = [c for c in self.sensor_cols if c in df.columns]
+        out = df.copy()
+        out[cols] = (out[cols] - self._feat_mean[cols]) / self._feat_std[cols]
+        return out
+
     def save(self, path: Path) -> None:
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
         (path / "metadata.json").write_text(json.dumps({
             "formulation": "rul",
+            "backend": self.backend,
             "feature_names": self.feature_names,
             "sensor_cols": self.sensor_cols,
             "window_size": self.window_size,
             "rul_cap": self.rul_cap,
+            "feature_mean": None if self._feat_mean is None else self._feat_mean.to_dict(),
+            "feature_std": None if self._feat_std is None else self._feat_std.to_dict(),
         }, indent=2))
-        # AutoGluon saves itself at path/ag_model during training
+        if isinstance(self.predictor, TabularPredictor):
+            # AutoGluon saved itself under the training `output` dir; copy it if
+            # the model is being saved somewhere else.
+            ag_dir = path / "ag_model"
+            if Path(self.predictor.path).resolve() != ag_dir.resolve():
+                shutil.copytree(self.predictor.path, ag_dir, dirs_exist_ok=True)
+        elif self.predictor is not None:
+            # Optuna backend: plain scikit-learn / XGBoost / LightGBM estimators.
+            joblib.dump(self.predictor, path / "model.joblib")
 
     @classmethod
     def load(cls, path: Path) -> "RULPredictor":
@@ -393,7 +423,14 @@ class RULPredictor(PDMModel):
         obj = cls(window_size=meta["window_size"], rul_cap=meta["rul_cap"])
         obj.feature_names = meta["feature_names"]
         obj.sensor_cols = meta["sensor_cols"]
-        obj.predictor = TabularPredictor.load(str(path / "ag_model"), verbosity=0)
+        obj.backend = meta.get("backend", "autogluon")
+        if meta.get("feature_mean") is not None:
+            obj._feat_mean = pd.Series(meta["feature_mean"], dtype=float)
+            obj._feat_std = pd.Series(meta["feature_std"], dtype=float)
+        if (path / "model.joblib").exists():
+            obj.predictor = joblib.load(path / "model.joblib")
+        else:
+            obj.predictor = TabularPredictor.load(str(path / "ag_model"), verbosity=0)
         return obj
 
     def _last_window_features(self, df: pd.DataFrame, unit_col: str) -> pd.DataFrame:
