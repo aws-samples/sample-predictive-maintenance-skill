@@ -13,7 +13,7 @@ if [ -z "${1:-}" ]; then
   echo ""
   echo "Artifacts saved:"
   echo "  dataset/       raw_dataset.py + raw CSVs"
-  echo "  training/      runtime.py + train_config.json"
+  echo "  training/      runtime.py + train_config.json + pdm/ + pyproject.toml/uv.lock"
   echo "  model/         ag_model/ + metadata.json + metrics.json"
   echo "  inference/     inference.py + Dockerfile + serve.py"
   echo "  infrastructure/ CDK stack for deployment"
@@ -79,6 +79,10 @@ if [ -f "$MODEL_DIR/config.json" ]; then
 fi
 # Copy pdm library (small, needed by runtime.py at inference time)
 aws s3 sync pdm/ "${DEST}/training/pdm/" --exclude "__pycache__/*" --exclude "*.pyc" --quiet
+# Exact environment: dependency layout, locked versions, Python minor version
+for f in pyproject.toml uv.lock .python-version; do
+  [ -f "$f" ] && aws s3 cp "$f" "${DEST}/training/$f" --quiet
+done
 
 # --- 3. Model (inference binaries) ---
 echo "[3/5] Model..."
@@ -95,7 +99,12 @@ if [ -n "$SKILL_DIR" ] && [ -d "${SKILL_DIR}/sagemaker_container" ]; then
   aws s3 cp "${SKILL_DIR}/sagemaker_container/inference.py" "${DEST}/inference/inference.py" --quiet
   aws s3 cp "${SKILL_DIR}/sagemaker_container/serve.py" "${DEST}/inference/serve.py" --quiet
   aws s3 cp "${SKILL_DIR}/sagemaker_container/Dockerfile" "${DEST}/inference/Dockerfile" --quiet
-  aws s3 cp "${SKILL_DIR}/sagemaker_container/requirements.txt" "${DEST}/inference/requirements.txt" --quiet
+  aws s3 cp "${SKILL_DIR}/sagemaker_container/Dockerfile.dockerignore" "${DEST}/inference/Dockerfile.dockerignore" --quiet
+  # Record exactly what the image installs (locked pdm-project[serve] requirements)
+  _REQS="$(mktemp)"
+  uv run --quiet python -m pdm.deployment.requirements --extras serve -o "$_REQS" >/dev/null
+  aws s3 cp "$_REQS" "${DEST}/inference/requirements.txt" --quiet
+  rm -f "$_REQS"
 else
   echo "  ⚠️  Skipped (skill directory not found)"
 fi

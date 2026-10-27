@@ -37,10 +37,10 @@ Use this skill when the user:
 │   ├── setup.sh                     # One-command project setup
 │   └── save_model.sh                # Phase 6: upload artifacts to S3
 ├── sagemaker_container/
-│   ├── Dockerfile               # Custom container (Python 3.12 + AutoGluon + lifelines + Flask)
+│   ├── Dockerfile               # Custom container: slim pdm[serve] from uv.lock (build from project root)
 │   ├── serve.py                 # Flask server (/ping + /invocations)
-│   ├── inference.py             # Legacy handlers (still works for AutoGluon-only models)
-│   └── requirements.txt         # Reference only (deps baked in Dockerfile)
+│   ├── inference.py             # SageMaker handlers (raw rows when runtime.py is packaged)
+│   └── Dockerfile.dockerignore  # Build-context allowlist
 ├── infrastructure/
 │   ├── README.md                    # Top-level: explains layout
 │   ├── batch/                       # Phase 8B: Daily batch inference

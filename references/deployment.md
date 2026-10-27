@@ -29,14 +29,14 @@ Deploy the best fault prediction model as a real-time SageMaker endpoint using a
 Pre-built containers don't work reliably for AutoGluon models:
 - **AutoGluon DLC** uses TorchServe (OOM with multi-label models, version mismatch with newer AG)
 - **sklearn container** can't install AutoGluon within the health check timeout (~20 min)
-- **Custom container** bakes in the exact versions, starts in seconds, works every time
+- **Custom container** installs the slim pdm library (`pdm-project[serve]`) at the exact versions in `uv.lock`, starts in seconds, works every time. Because pdm is installed, the endpoint can also run the project's `runtime.py` and accept raw rows.
 
 ### ⚠️ Gotchas (Endpoint)
 
-- **Python/AutoGluon version mismatch**: Container MUST match the training environment exactly. Check `environment.json` and `version.txt` before building.
+- **Python/AutoGluon version mismatch**: AutoGluon only loads models saved by the same AutoGluon and Python minor version. The image takes both from `.python-version` and `uv.lock`; if `environment.json` disagrees, retrain in the locked environment (`uv sync`) — do not edit the Dockerfile.
 - **`pickle` error in `load_child`**: Use the full `ag_model/` directory, never `clone_for_deployment` — child models need their pkl files.
 - **Cold start on first invocation**: First call loads all predictors (~10-30s). This is normal — subsequent calls are instant.
-- **Container deps**: Dockerfile must include `boto3`, `pyarrow`, `tqdm`, `libgomp1` in addition to `autogluon`.
+- **Container deps**: Python dependencies come from the `serve` extra in `pyproject.toml` (installed from `uv.lock`); `libgomp1` is installed with apt. Never `pip install` extra packages in the Dockerfile.
 
 ### Step 8.1: Verify Version Requirements
 
@@ -47,7 +47,7 @@ cat fault_prediction/baseline/model/environment.json | python3 -c "import json,s
 cat fault_prediction/baseline/model/ag_model/*/version.txt | head -1
 ```
 
-Projects created by `setup.sh` train with the versions pinned in `.python-version` and `uv.lock` (Python 3.12, AutoGluon 1.6.3), which the Dockerfile matches. If `environment.json` shows anything else, the training environment drifted from the lock — retrain in the locked environment rather than editing the container.
+Projects created by `setup.sh` train with the versions pinned in `.python-version` and `uv.lock` (Python 3.12, AutoGluon 1.6.3), and the image installs from those same files. If `environment.json` shows anything else, the training environment drifted from the lock — retrain in the locked environment rather than editing the container.
 
 ### Step 8.1b: Pre-check Existing Resources
 
@@ -77,7 +77,9 @@ IMAGE="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:latest"
 aws ecr create-repository --repository-name $REPO_NAME --region $REGION 2>/dev/null || true
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin ${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com
 
-docker build --platform linux/amd64 -t $REPO_NAME <SKILL_DIR>/sagemaker_container/
+# Build from the project root: the image installs ./pdm with the versions in ./uv.lock
+cp -r <SKILL_DIR>/sagemaker_container ./sagemaker_container
+docker build --platform linux/amd64 -f sagemaker_container/Dockerfile -t $REPO_NAME .
 docker tag $REPO_NAME:latest $IMAGE
 docker push $IMAGE
 ```
@@ -90,7 +92,11 @@ BEST_MODEL_DIR="./fault_prediction/baseline/model"  # or experiments/<best>/mode
 rm -rf /tmp/model_pkg && mkdir -p /tmp/model_pkg/code
 cp -r "$BEST_MODEL_DIR/ag_model" /tmp/model_pkg/
 cp "$BEST_MODEL_DIR/metadata.json" /tmp/model_pkg/
-cp <SKILL_DIR>/sagemaker_container/inference.py /tmp/model_pkg/code/
+cp ./sagemaker_container/inference.py /tmp/model_pkg/code/
+# Optional — accept raw rows: the endpoint runs engineer_features() from the
+# winning experiment's runtime.py, so callers send the same raw columns as
+# data/raw_test.csv. Without it, callers must send engineered features.
+cp "$(dirname "$BEST_MODEL_DIR")/runtime.py" /tmp/model_pkg/code/runtime.py
 
 cd /tmp/model_pkg && tar czf /tmp/model.tar.gz . && cd -
 aws s3 cp /tmp/model.tar.gz s3://<bucket>/endpoint/model.tar.gz
@@ -103,8 +109,9 @@ IMAGE="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/pdm-inference:latest"
 
 docker run -d --name sm-local-test -v /tmp/model_pkg:/opt/ml/model -p 8080:8080 $IMAGE
 sleep 5 && curl http://localhost:8080/ping
-curl -X POST http://localhost:8080/invocations -H "Content-Type: application/json" \
-  -d '[{"feature_1": 0.0, "feature_2": 1.0}]'
+# Raw rows if runtime.py was packaged, engineered features otherwise
+curl -X POST http://localhost:8080/invocations -H "Content-Type: text/csv" \
+  --data-binary "$(head -2 data/raw_test.csv)"
 docker rm -f sm-local-test
 ```
 
@@ -351,9 +358,8 @@ uv run python -u batch_inference.py
 
 1. Copy infrastructure: `cp -r <SKILL_DIR>/infrastructure/batch ./infrastructure/batch`
 2. Configure `infrastructure/batch/cdk.json` (input_bucket, ecr_image_uri, model_s3_uri, schedule)
-3. Upload batch code to S3:
+3. Upload batch code to S3 (the image already contains the pdm library from Phase 8A — do not upload `pdm/`, a copy on the code path would shadow the installed, locked one):
    ```bash
-   aws s3 sync ./pdm/ s3://${OUTPUT_BUCKET}/batch-code/pdm/
    aws s3 cp batch_inference.py s3://${OUTPUT_BUCKET}/batch-code/
    aws s3 cp fault_prediction/baseline/runtime.py s3://${OUTPUT_BUCKET}/batch-code/fault_prediction/baseline/runtime.py
    ```
@@ -372,9 +378,9 @@ uv run python -u batch_inference.py
 
 | Failure | Recovery |
 |---------|----------|
-| `ModuleNotFoundError` in container | Add missing dep to Dockerfile, rebuild and push image |
+| `ModuleNotFoundError` in container | Add the dependency to the `serve` extra in `pyproject.toml`, run `uv lock`, rebuild and push the image |
 | `OSError: libgomp.so` | Add `apt-get install libgomp1` to Dockerfile |
-| `AssertionError: Python version` | Match Dockerfile `FROM python:X.Y-slim` to training env |
+| `AssertionError: Python version` / AutoGluon version mismatch on load | Model was trained outside the locked environment — `uv sync` and retrain (the image follows `.python-version` and `uv.lock`) |
 | Worker OOM / dies (AutoGluon DLC) | Use custom container, not DLC |
 | `pickle` error in `load_child` | Use full `ag_model/` dir (not `clone_for_deployment`) |
 | Invocation timeout on first call | Normal cold start — retry after 30s |
@@ -384,7 +390,7 @@ uv run python -u batch_inference.py
 | Only 1 instance active despite `InstanceCount>1` | Split input into multiple files — 1 file = 1 instance max |
 | CSV parsing error in container | Input has embedded newlines — clean data or use JSON Lines format |
 | Processing Job OOM (`use an instance type with more memory`) | Model + telemetry exceeds 16GB — use `ml.m5.2xlarge` (32GB) |
-| Processing Job `ModuleNotFoundError: pdm` | Code not uploaded to S3 — re-run `aws s3 sync ./pdm/ s3://<output-bucket>/batch-code/pdm/` |
+| Processing Job `ModuleNotFoundError: pdm` | Image built before pdm was installed in it — rebuild and push the image (Step 8.2) |
 
 ---
 

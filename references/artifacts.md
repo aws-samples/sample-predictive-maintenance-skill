@@ -14,7 +14,10 @@ s3://<output-bucket>/<YYYYMMDD_HHMM>/
 ├── training/                    # 2. Training
 │   ├── runtime.py               # Feature engineering: raw → model input
 │   ├── train_config.json        # Training args (time_limit, presets, formulation)
-│   └── pdm/                     # Full pdm library (utilities for feature engineering + inference)
+│   ├── pdm/                     # Full pdm library (utilities for feature engineering + inference)
+│   ├── pyproject.toml           # Dependency layout (slim core + extras)
+│   ├── uv.lock                  # Exact versions shared by training, container and edge
+│   └── .python-version          # Python minor version (AutoGluon requires a match)
 │
 ├── model/                       # 3. Inference — model binaries
 │   ├── metadata.json            # Feature names, label names, formulation, training date
@@ -29,8 +32,9 @@ s3://<output-bucket>/<YYYYMMDD_HHMM>/
 ├── inference/                   # 3b. Inference runtime (for container deployment)
 │   ├── inference.py             # SageMaker model_fn/input_fn/predict_fn/output_fn
 │   ├── serve.py                 # Gunicorn entrypoint for container
-│   ├── Dockerfile               # Container definition
-│   └── requirements.txt         # Pinned inference dependencies
+│   ├── Dockerfile               # Container definition (build from project root)
+│   ├── Dockerfile.dockerignore  # Build-context allowlist
+│   └── requirements.txt         # Locked pdm-project[serve] requirements (from uv.lock)
 │
 ├── infrastructure/              # 4. Infrastructure (CDK)
 │   ├── app.py                   # CDK app entrypoint
@@ -73,7 +77,7 @@ s3://<output-bucket>/<YYYYMMDD_HHMM>/
 - `engineer_features` is idempotent and side-effect-free
 - `engineer_features` never drops rows (1-in-1-out)
 - Output of `engineer_features` is model-ready when passed through `align_to_model()`
-- `pdm/` + `runtime.py` are sufficient to run feature engineering in any Python environment with pandas/numpy
+- `pdm/` + `runtime.py` are sufficient to run feature engineering with the slim pdm install (no training-only packages); `uv.lock` + `.python-version` reproduce the exact environment
 
 ## Artifact 3: Inference
 
@@ -85,18 +89,19 @@ s3://<output-bucket>/<YYYYMMDD_HHMM>/
 | `metrics.json` | Classification metrics include F1, precision, recall, ROC AUC, average precision, `optimization_priority`, `eval_metric`, the validation-calibrated `decision_threshold`, and `quality_gate` (`passed`, `criterion` = `f1` or `ranking`, `positive_rate`, `reason`); multi-label runs include the same operating-point and gate fields per label plus positive_rate, aggregate mean/median metrics, and an aggregate `quality_gate`. ROC AUC and average precision are `null` when a test split contains only one class. Optional: feature_importance. |
 | `baseline_stats.json` | Per-feature: mean, std, q25, q50, q75, min, max. For drift detection at inference time. |
 | `ag_model/` | AutoGluon model directory. One subdirectory per label for multi-label. Each contains model weights, version info, and predictor config. |
-| `inference.py` | Implements SageMaker hosting contract: `model_fn(model_dir)`, `input_fn(body, content_type)`, `predict_fn(input, model)`, `output_fn(result, content_type)`. Standalone — no imports from `pdm.*`. |
-| `serve.py` | Starts Gunicorn with the inference handler. Container entrypoint. |
-| `Dockerfile` | Builds the inference container. Pins Python version + AutoGluon version to match training. |
-| `requirements.txt` | Exact versions for inference container (autogluon, pandas, numpy, etc.). |
+| `inference.py` | Implements SageMaker hosting contract: `model_fn(model_dir)`, `input_fn(body, content_type)`, `predict_fn(input, model)`, `output_fn(result, content_type)`. Runs on the slim pdm install and may import `pdm.*`. If the model package contains `code/runtime.py`, applies its `engineer_features` to incoming rows. |
+| `serve.py` | Starts the Flask server with the inference handler. Container entrypoint. |
+| `Dockerfile` | Builds the inference container from the project root: Python from `.python-version`, dependencies of `pdm-project[serve]` from `uv.lock` (hash-checked), then the `pdm/` library. |
+| `Dockerfile.dockerignore` | Build-context allowlist. |
+| `requirements.txt` | Locked, hashed `pdm-project[serve]` requirements exported from `uv.lock` at save time (record of what the image installs). |
 
 **Contract guarantees**:
-- `inference.py` is fully standalone (no `pdm` package dependency in production)
-- Input: JSON array of objects or CSV. Columns must be a superset of `metadata.json["feature_names"]` (missing columns filled with 0)
+- The container installs only the slim inference install (`pdm-project[serve]`) at the training environment's exact versions — no training-only packages
+- Input: JSON array of objects or CSV. **Raw rows** (same columns as `raw_test.csv`) when `code/runtime.py` is packaged, otherwise **engineered features**. Columns are aligned with `pdm.data.utils.align_to_model` (missing features filled with 0 and logged, extras dropped)
 - Output (multi-label): `{"<label>_pred": [0,1,...], "<label>_proba": [0.1, 0.9, ...]}`
 - Output (single-label): `{"prediction": [...], "probabilities": [...]}`
 
-**Inference pipeline** (caller responsibility):
+**Inference pipeline** (inside the endpoint when `runtime.py` is packaged; otherwise the caller runs the first step):
 ```
 raw data → engineer_features(raw_df) → align_to_model(df, metadata) → predict
 ```
@@ -105,10 +110,10 @@ raw data → engineer_features(raw_df) → align_to_model(df, metadata) → pred
 
 | Path | Feature Engineering | Model Loading | Use Case |
 |------|-------------------|---------------|----------|
-| **Real-time endpoint** | Caller pre-computes features before sending to endpoint | `inference.py` loads model via `model_fn()` | Low-latency single predictions |
-| **Batch inference** | Processing Job runs `runtime.py` + `pdm_utils.py` on raw data | Same `inference.py` pattern inside container | Daily scoring of full fleet |
+| **Real-time endpoint** | Endpoint runs the packaged `runtime.py` on raw rows (or caller pre-computes features if `runtime.py` is not packaged) | `inference.py` loads model via `model_fn()` | Low-latency single predictions |
+| **Batch inference** | Processing Job runs `runtime.py` with the image's installed pdm library on raw data | Same image as the endpoint | Daily scoring of full fleet |
 
-For **real-time**: the caller (e.g., an application service) imports `runtime.py` and the `pdm` library, calls `engineer_features()`, then sends the engineered row to the SageMaker endpoint.
+For **real-time**: package the winning experiment's `runtime.py` with the model (Phase 8.3) and send raw rows; the endpoint uses the same `engineer_features` and pdm version as training, so callers never re-implement feature engineering. `engineer_features` is row-wise (1-in-1-out), so single-row requests produce the same features as training.
 
 For **batch**: the SageMaker Processing Job container includes `runtime.py`, `pdm/`, and the model. It reads raw telemetry from S3, engineers features, predicts, and writes results back to S3.
 

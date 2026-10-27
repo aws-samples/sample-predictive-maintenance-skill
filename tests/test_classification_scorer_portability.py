@@ -1,9 +1,9 @@
 """Models trained with any optimization priority must load without ``pdm``.
 
-AutoGluon pickles the eval_metric into the saved predictor. The SageMaker
-serving container (``sagemaker_container/``) installs AutoGluon and sklearn but
-not ``pdm``, so a scorer that references a ``pdm`` function makes the model
-unloadable at inference time.
+AutoGluon pickles the eval_metric into the saved predictor. The inference
+container now installs the slim pdm library, but keeping classification scorers
+free of pdm references means a model also loads in a bare AutoGluon environment
+(e.g. a notebook or another team's service).
 """
 
 import pickle

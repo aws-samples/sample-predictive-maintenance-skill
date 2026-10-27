@@ -11,7 +11,7 @@ EventBridge (cron) → Lambda → SageMaker Processing Job → S3 predictions
 - AWS CDK CLI installed (`npm install -g aws-cdk`)
 - Docker image pushed to ECR (from Phase 8A/8B container build)
 - Model artifacts uploaded to S3 (from Phase 7)
-- Batch inference code uploaded to `s3://{input_bucket}/batch-code/`
+- Batch inference code uploaded to `s3://{output_bucket}/batch-code/`
 
 ## Configuration
 
@@ -39,11 +39,10 @@ cdk deploy -c account=$(aws sts get-caller-identity --query Account --output tex
 
 ## Upload Batch Code
 
-Before the Processing Job can run, upload the batch inference script and pdm library to the **output bucket** (never write to the input bucket):
+Before the Processing Job can run, upload the batch inference script and `runtime.py` to the **output bucket** (never write to the input bucket). The pdm library is already installed in the container image at the locked versions — do not upload `pdm/`; a copy on the code path would shadow it.
 
 ```bash
 # From the project root:
-aws s3 sync ./pdm/ s3://${OUTPUT_BUCKET}/batch-code/pdm/
 aws s3 cp batch_inference.py s3://${OUTPUT_BUCKET}/batch-code/
 aws s3 cp fault_prediction/baseline/runtime.py s3://${OUTPUT_BUCKET}/batch-code/fault_prediction/baseline/runtime.py
 ```
@@ -64,4 +63,4 @@ aws lambda invoke --function-name pdm-batch-trigger /dev/stdout
   - Reads telemetry from S3
   - Loads model from S3
   - Writes predictions to `s3://{input_bucket}-predictions/{YYYYMMDD}/`
-- **Container**: Same Docker image used for the real-time endpoint
+- **Container**: Same Docker image used for the real-time endpoint (slim `pdm-project[serve]` from `uv.lock`)

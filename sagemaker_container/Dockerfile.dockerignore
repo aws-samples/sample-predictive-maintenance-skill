@@ -1,0 +1,11 @@
+# Build context allowlist for sagemaker_container/Dockerfile (BuildKit picks up
+# <Dockerfile>.dockerignore next to the Dockerfile). The build runs from the
+# project root, which also holds data/, .venv/ and model directories.
+*
+!pyproject.toml
+!uv.lock
+!pdm/
+!sagemaker_container/serve.py
+!sagemaker_container/inference.py
+**/__pycache__
+**/*.pyc

@@ -49,10 +49,14 @@ def test_container_python_matches_python_version_file():
     assert match and match.group(1) == pinned
 
 
-def test_container_autogluon_matches_pin():
+def test_container_installs_locked_serve_extra():
+    """The image installs uv.lock's versions; it must not pin anything itself."""
     dockerfile = (ROOT / "sagemaker_container" / "Dockerfile").read_text()
-    pins = set(re.findall(r"autogluon\.(?:tabular|core)(?:\[[^\]]+\])?==([\d.]+)", dockerfile))
-    assert pins == {_pinned_autogluon()}
+    assert "uv export --frozen --no-dev --no-emit-project --extra serve" in dockerfile
+    assert "--require-hashes" in dockerfile
+    install_lines = [l for l in dockerfile.splitlines() if "pip install" in l]
+    assert install_lines and not any("==" in l for l in install_lines)
+    assert not (ROOT / "sagemaker_container" / "requirements.txt").exists()
 
 
 def test_remote_training_requirements_pin_local_autogluon():
