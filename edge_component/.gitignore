@@ -2,6 +2,8 @@
 pdm/
 model/
 data/device_sensors.csv
+requirements.txt
+python-version.txt
 
 # GDK build artifacts
 greengrass-build/

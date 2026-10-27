@@ -454,7 +454,7 @@ bash scripts/deploy_edge.sh --model-dir ./<model_type>/baseline/model --data-inp
 ```
 
 The script:
-1. Copies the model directory and `pdm/` library into the edge component
+1. Copies the model directory and `pdm/` library into the edge component, and exports locked `requirements.txt` for the model's formulation from `uv.lock` (base + `edge`, plus `tabular` for classification/RUL or `survival`)
 2. Extracts single-device sensor data for replay
 3. Builds and publishes the Greengrass component via GDK
 4. Creates a Greengrass deployment targeting the device
@@ -480,7 +480,8 @@ This removes the Greengrass deployment, destroys the CDK stack (EC2, IoT resourc
 ### Edge Deployment Key Details
 
 - **Model format**: Same as cloud (full model directory copied as-is; no export step)
-- **Inference library**: Full `pdm` library runs on the edge device
+- **Inference library**: The `pdm` library runs on the edge device on the slim install — anomaly-detection devices do not install AutoGluon, boto3 or any training-only package
+- **Python version**: The device venv must use the project's `.python-version` (3.12); the recipe's install step fails with a clear message otherwise, because AutoGluon cannot load models across Python minor versions. The demo device provisions `python3.12`
 - **Sensor source**: Pluggable `SensorSource` interface — ships with `CsvReplaySource` for demos; implement custom sources for OPC-UA, MQTT, Modbus, etc. (see `edge_component/README.md`)
 - **Predictions**: Published to `things/{thing-name}/pdm/predictions` via IoT Core MQTT
 - **Instance type**: `t3.small` (2GB RAM) — sufficient for all tabular PdM models
@@ -493,7 +494,7 @@ This removes the Greengrass deployment, destroys the CDK stack (EC2, IoT resourc
 - **GDK artifact path**: The recipe uses `{artifacts:decompressedPath}/pdm-inference/` — this matches the GDK zip structure. Do not rename `zip_name` in `gdk-config.json` without updating the recipe.
 - **MQTT rate limit**: 100 TPS per device (fine for PdM intervals of 30s+). For high-frequency use cases, aggregate on-device.
 - **First deployment**: The EC2 instance needs 3-5 minutes after CDK deploy for UserData to complete Greengrass provisioning. The deploy script's deployment step will fail if run too early — wait for the instance to report "Healthy" in IoT Core console.
-- **pip install time**: The `install` lifecycle installs AutoGluon + dependencies (~2-3 minutes on first deployment). Subsequent deployments reuse the venv if unchanged.
+- **pip install time**: The `install` lifecycle installs the locked requirements in hash-checking mode — seconds for anomaly detection, ~2-3 minutes with AutoGluon (classification/RUL) on first deployment. Subsequent deployments reuse the venv if unchanged.
 
 ### Error Recovery
 
@@ -501,7 +502,8 @@ This removes the Greengrass deployment, destroys the CDK stack (EC2, IoT resourc
 |---------|----------|
 | `deploy_edge.sh` fails on "CDK stack not deployed" | Run `cd infrastructure/edge && cdk deploy --all` first |
 | Greengrass deployment status FAILED | Check device logs: `sudo tail -50 /greengrass/v2/logs/com.example.PdmEdgeInference.log` |
-| Component `ERRORED` — ModuleNotFoundError | pip install failed in `install` lifecycle; check `/greengrass/v2/logs/greengrass.log` for venv errors |
+| Component `ERRORED` — ModuleNotFoundError | pip install failed in `install` lifecycle; check `/greengrass/v2/logs/greengrass.log` for venv errors. If the model's formulation changed, redeploy so `requirements.txt` is re-exported with the right extras |
+| Install fails: `venv Python 3.x != training Python 3.12` | The device venv was created with another Python — remove `/home/ggc_user/.venv` and recreate it with `python3.12 -m venv` |
 | No predictions arriving in IoT Core | Verify component is RUNNING: `sudo /greengrass/v2/bin/greengrass-cli component list`; check IPC access control in recipe |
 | `{iot:thingName}` appears literally in topic | Nucleus `interpolateComponentConfiguration` not set — redeploy the CDK stack |
 | Component artifact too large (>500MB) | Remove unnecessary files from model dir; or use S3FileDownloader component for model delivery |

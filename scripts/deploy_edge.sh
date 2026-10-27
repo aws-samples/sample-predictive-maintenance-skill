@@ -49,7 +49,7 @@ Options:
   --max-rows N        Cap sensor data rows for demo
 
 Prerequisites:
-  aws, cdk, gdk CLIs installed
+  aws, cdk, gdk, uv CLIs installed
   CDK stacks deployed: cd infrastructure/edge && cdk deploy --all
   A trained model with metadata.json
 
@@ -103,6 +103,7 @@ check_prerequisites() {
     check_command aws
     check_command cdk
     check_command gdk
+    check_command uv
 
     if ! aws sts get-caller-identity &>/dev/null; then
         fail "AWS credentials not configured or expired"
@@ -165,13 +166,21 @@ do_deploy() {
     cp -r "$MODEL_DIR" "$EDGE_COMPONENT_DIR/model"
     ok "Model copied"
 
-    # Step 2: Copy pdm library
+    # Step 2: Copy pdm library + locked requirements for this model's formulation
     log "Copying pdm library to edge component..."
     rm -rf "$EDGE_COMPONENT_DIR/pdm"
     cp -r "$PROJECT_DIR/pdm" "$EDGE_COMPONENT_DIR/pdm"
-    # Replace __init__.py with edge-optimized version (lazy imports)
-    cp "$EDGE_COMPONENT_DIR/pdm_init_edge.py" "$EDGE_COMPONENT_DIR/pdm/__init__.py"
-    ok "pdm library copied (edge-optimized imports)"
+    ok "pdm library copied"
+
+    # The device installs the slim pdm dependencies at the exact versions in
+    # uv.lock: base + edge, plus tabular (AutoGluon) or survival extras only when
+    # the model's formulation needs them. AutoGluon models also require the
+    # training Python minor version, which the recipe checks on the device.
+    log "Exporting locked edge requirements..."
+    (cd "$PROJECT_DIR" && uv run --quiet python -m pdm.deployment.requirements \
+        --target edge --model-dir "$MODEL_DIR" -o "$EDGE_COMPONENT_DIR/requirements.txt")
+    cp "$PROJECT_DIR/.python-version" "$EDGE_COMPONENT_DIR/python-version.txt"
+    ok "requirements.txt exported (Python $(cat "$EDGE_COMPONENT_DIR/python-version.txt"))"
 
     # Step 3: Extract device sensor data
     log "Extracting device sensor data..."
@@ -319,7 +328,8 @@ do_destroy() {
     ok "Network stack destroyed"
 
     # Clean up local edge component artifacts
-    rm -rf "$EDGE_COMPONENT_DIR/model" "$EDGE_COMPONENT_DIR/pdm" "$EDGE_COMPONENT_DIR/greengrass-build" "$EDGE_COMPONENT_DIR/zip-build"
+    rm -rf "$EDGE_COMPONENT_DIR/model" "$EDGE_COMPONENT_DIR/pdm" "$EDGE_COMPONENT_DIR/greengrass-build" "$EDGE_COMPONENT_DIR/zip-build" \
+        "$EDGE_COMPONENT_DIR/requirements.txt" "$EDGE_COMPONENT_DIR/python-version.txt"
     rm -f "$EDGE_COMPONENT_DIR/data/device_sensors.csv"
     ok "Local artifacts cleaned"
 

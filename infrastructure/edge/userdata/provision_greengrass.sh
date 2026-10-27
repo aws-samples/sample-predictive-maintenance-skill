@@ -12,7 +12,9 @@ set -ex
 
 echo "=== Installing dependencies ==="
 dnf update -y
-dnf install -y java-11-amazon-corretto-headless python3.11 unzip
+# python3.12 must match the project's .python-version (AutoGluon requires the
+# training Python minor version to load classification / RUL models).
+dnf install -y java-11-amazon-corretto-headless python3.12 unzip
 
 echo "=== Creating Greengrass user ==="
 useradd --system --create-home ggc_user || true
@@ -22,7 +24,7 @@ groupadd --system ggc_group || true
 # scripts as ggc_user:ggc_group via sudo
 echo "root    ALL=(ALL:ALL) ALL" >> /etc/sudoers
 
-sudo -u ggc_user python3.11 -m venv /home/ggc_user/.venv
+sudo -u ggc_user python3.12 -m venv /home/ggc_user/.venv
 
 echo "=== Downloading Greengrass Nucleus ==="
 cd /tmp
