@@ -24,7 +24,10 @@ from autogluon.tabular import TabularPredictor
 from pdm.fault_prediction.metrics import (
     classification_eval_metric,
     classification_eval_metric_name,
+    classification_quality_gate,
     evaluate_binary_classifier,
+    format_quality_gate,
+    multilabel_quality_gate,
     normalize_optimization_priority,
     predictor_decision_threshold,
 )
@@ -136,6 +139,9 @@ def _train_single_label(label, feature_cols, train_df, test_df, output_dir, time
         "n_positives_train": n_pos, "best_model": predictor.model_best,
         "top_features": top_feats,
     }
+    result["quality_gate"] = classification_quality_gate(
+        cls_metrics["f1"], cls_metrics["roc_auc"], cls_metrics["average_precision"], pos_rate
+    )
     return label, result, importance_list
 
 
@@ -205,6 +211,9 @@ def train_multilabel(train_df, test_df, args):
         if avg_precisions:
             metrics["mean_test_average_precision"] = round(float(np.mean(avg_precisions)), 4)
             metrics["median_test_average_precision"] = round(float(np.median(avg_precisions)), 4)
+        metrics["quality_gate"] = multilabel_quality_gate(
+            {k: v["quality_gate"] for k, v in scored.items()}
+        )
     if all_importance:
         metrics["feature_importance"] = all_importance
 
@@ -252,6 +261,10 @@ def train_single(train_df, test_df, formulation, args):
     print(f"  Target: {target_col} | Metric: {eval_metric_name}")
 
     sample_weight_col = None
+    # Training positive rate before any resampling; drives the quality gate.
+    train_positive_rate = (
+        float(train_df[target_col].mean()) if formulation == "classification" else None
+    )
     if args.rebalance and formulation == "classification":
         pos_rate = train_df[target_col].mean()
         if pos_rate < 0.5:
@@ -349,6 +362,10 @@ def train_single(train_df, test_df, formulation, args):
         roc_auc = "N/A" if metrics["roc_auc"] is None else f"{metrics['roc_auc']:.4f}"
         avg_precision = "N/A" if metrics["average_precision"] is None else f"{metrics['average_precision']:.4f}"
         print(f"  ROC AUC: {roc_auc} | Average Precision: {avg_precision}")
+        metrics["positive_rate"] = round(train_positive_rate, 5)
+        metrics["quality_gate"] = classification_quality_gate(
+            metrics["f1"], metrics["roc_auc"], metrics["average_precision"], train_positive_rate
+        )
 
     metadata = {
         "feature_names": feature_cols, "target_name": target_col,
@@ -401,6 +418,8 @@ def _generate_model_card(metrics, metadata, args):
             card += f"- ROC AUC: {roc_auc}\n- Average Precision: {avg_precision}\n"
     if "nasa_score" in metrics:
         card += f"- NASA Score: {metrics['nasa_score']:.1f}\n"
+    if "quality_gate" in metrics:
+        card += f"- {format_quality_gate(metrics['quality_gate'])}\n"
 
     card += f"""
 ## Intended Use
@@ -556,6 +575,8 @@ def main():
             avg_precision = "N/A" if metrics.get("average_precision") is None else f"{metrics['average_precision']:.4f}"
             print(f"  ROC AUC: {roc_auc} | Average Precision: {avg_precision}")
             print(f"  Decision threshold: {metrics.get('decision_threshold', 0.5):.6f}")
+    if "quality_gate" in metrics:
+        print(f"  {format_quality_gate(metrics['quality_gate'])}")
     print(f"{'='*60}")
     print(f"✅ Saved to {args.output}/")
 

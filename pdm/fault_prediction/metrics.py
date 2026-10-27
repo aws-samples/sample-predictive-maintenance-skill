@@ -177,3 +177,89 @@ def evaluate_binary_classifier(
         binarize_labels(predictions, positive_class),
         scores,
     )
+
+
+# --- Quality gate -----------------------------------------------------------
+#
+# F1 at the operating point is a fair gate only when positives are reasonably
+# common. Below ~1% positives, F1 >= 0.50 is close to unachievable even for a
+# useful ranker, so the gate switches to threshold-independent ranking metrics
+# (mirroring the anomaly-detection gate, which uses AUROC >= 0.75). Average
+# precision is judged as lift over the positive rate, because AP's random
+# baseline equals the positive rate and AUROC alone can look strong at extreme
+# imbalance while precision stays near zero.
+GATE_MIN_F1 = 0.50
+GATE_LOW_PREVALENCE_RATE = 0.01
+GATE_MIN_ROC_AUC = 0.75
+GATE_MIN_AP_LIFT = 5.0
+
+
+def classification_quality_gate(
+    f1: float | None,
+    roc_auc: float | None,
+    average_precision: float | None,
+    positive_rate: float | None,
+) -> dict[str, Any]:
+    """Evaluate the imbalance-aware classification quality gate for one label.
+
+    Args:
+        f1: Test F1 at the deployed (validation-calibrated) threshold.
+        roc_auc: Test ROC AUC, or ``None`` when undefined.
+        average_precision: Test average precision, or ``None`` when undefined.
+        positive_rate: Positive rate of the training labels before any
+            resampling. ``None`` falls back to the F1 gate.
+
+    Returns:
+        ``{"passed", "criterion", "positive_rate", "reason"}`` where criterion is
+        ``"f1"`` (positive rate >= 1%) or ``"ranking"`` (positive rate < 1%).
+    """
+    rate = None if positive_rate is None else float(positive_rate)
+
+    if rate is None or rate >= GATE_LOW_PREVALENCE_RATE:
+        passed = f1 is not None and float(f1) >= GATE_MIN_F1
+        shown = "N/A" if f1 is None else f"{float(f1):.4f}"
+        reason = f"F1={shown} {'≥' if passed else '<'} {GATE_MIN_F1:.2f}"
+        if rate is not None:
+            reason += f" (positive rate {rate:.2%})"
+        return {"passed": bool(passed), "criterion": "f1", "positive_rate": rate, "reason": reason}
+
+    prefix = f"positive rate {rate:.2%} < {GATE_LOW_PREVALENCE_RATE:.0%} → ranking gate: "
+    if roc_auc is None or average_precision is None:
+        return {
+            "passed": False, "criterion": "ranking", "positive_rate": rate,
+            "reason": prefix + "ROC AUC / AP undefined (test split has a single class)",
+        }
+
+    lift = float(average_precision) / rate if rate > 0 else float("inf")
+    auc_ok = float(roc_auc) >= GATE_MIN_ROC_AUC
+    lift_ok = lift >= GATE_MIN_AP_LIFT
+    reason = (
+        f"ROC AUC={float(roc_auc):.4f} {'≥' if auc_ok else '<'} {GATE_MIN_ROC_AUC:.2f}, "
+        f"AP lift={lift:.1f}× {'≥' if lift_ok else '<'} {GATE_MIN_AP_LIFT:.0f}×"
+    )
+    return {
+        "passed": bool(auc_ok and lift_ok), "criterion": "ranking",
+        "positive_rate": rate, "reason": prefix + reason,
+    }
+
+
+def multilabel_quality_gate(label_gates: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate per-label gates: pass when at least half of scored labels pass.
+
+    With every label on the F1 criterion this is the previous "median F1 >= 0.50"
+    rule; it additionally lets rare labels be judged by the ranking gate.
+    """
+    n_scored = len(label_gates)
+    n_passed = sum(1 for gate in label_gates.values() if gate.get("passed"))
+    passed = n_scored > 0 and 2 * n_passed >= n_scored
+    return {
+        "passed": bool(passed),
+        "labels_passed": n_passed,
+        "labels_scored": n_scored,
+        "reason": f"{n_passed}/{n_scored} labels pass their gate (need at least half)",
+    }
+
+
+def format_quality_gate(gate: dict[str, Any]) -> str:
+    """One-line, human-readable gate result for training logs."""
+    return f"Quality gate: {'✅ PASSED' if gate['passed'] else '❌ FAILED'} — {gate['reason']}"

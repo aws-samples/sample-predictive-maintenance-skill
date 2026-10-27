@@ -52,6 +52,7 @@ def main():
         from pdm.fault_prediction.metrics import (
             classification_eval_metric,
             classification_eval_metric_name,
+            classification_quality_gate,
             evaluate_binary_classifier,
             normalize_optimization_priority,
             predictor_decision_threshold,
@@ -77,6 +78,11 @@ def main():
             "optimization_priority": optimization_priority,
             "eval_metric": eval_metric_name,
             "decision_threshold": round(predictor_decision_threshold(predictor), 6),
+            "positive_rate": round(float(train_df[target].mean()), 5),
+            "quality_gate": classification_quality_gate(
+                cls_metrics["f1"], cls_metrics["roc_auc"], cls_metrics["average_precision"],
+                float(train_df[target].mean()),
+            ),
         }
         result = type("R", (), {"metrics": result_metrics})()
 

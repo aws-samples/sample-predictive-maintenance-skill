@@ -12,8 +12,10 @@ from pdm.fault_prediction.metrics import (
     binarize_labels,
     classification_eval_metric,
     classification_eval_metric_name,
+    classification_quality_gate,
     compute_binary_metrics,
     evaluate_binary_classifier,
+    multilabel_quality_gate,
     normalize_optimization_priority,
     positive_class_scores,
     predictor_decision_threshold,
@@ -174,6 +176,11 @@ class FailureClassifier(PDMModel):
                 "eval_metric": eval_metric_name,
                 "smote_applied": use_smote and train_df[label].mean() < 0.10,
             }
+            # Gate on the training positive rate before SMOTE resampling.
+            metrics[label]["quality_gate"] = classification_quality_gate(
+                cls_metrics["f1"], cls_metrics["roc_auc"], cls_metrics["average_precision"],
+                float(train_df[label].mean()),
+            )
             self.predictors[label] = predictor
 
         # Summary metrics
@@ -191,6 +198,9 @@ class FailureClassifier(PDMModel):
             if avg_precisions:
                 summary["mean_average_precision"] = round(float(np.mean(avg_precisions)), 4)
                 summary["median_average_precision"] = round(float(np.median(avg_precisions)), 4)
+            summary["quality_gate"] = multilabel_quality_gate(
+                {label: m["quality_gate"] for label, m in metrics.items() if "quality_gate" in m}
+            )
         summary["per_label"] = metrics
 
         return TrainResult(

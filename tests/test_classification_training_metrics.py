@@ -71,6 +71,10 @@ def test_binary_training_reports_ranking_metrics(monkeypatch, tmp_path):
     assert metrics["average_precision"] == pytest.approx(1.0)
     assert metrics["optimization_priority"] == "balanced"
     assert metrics["decision_threshold"] == pytest.approx(0.37)
+    # 50% positives → F1 gate; the fake predictor predicts all-negative, so it fails.
+    assert metrics["positive_rate"] == pytest.approx(0.5)
+    assert metrics["quality_gate"]["criterion"] == "f1"
+    assert metrics["quality_gate"]["passed"] is False
 
 
 def test_multilabel_training_reports_per_label_ranking_metrics(monkeypatch, tmp_path):

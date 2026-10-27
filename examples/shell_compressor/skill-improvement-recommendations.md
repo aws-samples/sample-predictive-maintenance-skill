@@ -77,6 +77,8 @@ process (no traceback — `SIGKILL` leaves none).
 ## Recommended enhancements
 
 ### R1 — Add integration tests for the imbalance paths  *(highest leverage)*
+
+> **Status: implemented in PR #5.** `tests/test_training_robustness.py` covers the rebalance and SMOTE-with-NaN paths; `tests/test_temporal_anomaly.py` checks that wide-series windowing stays float32.
 B1 and B2 both sat on `--rebalance` / `--smote`, and B3 on the wide-data temporal
 path. A small synthetic fixture — an imbalanced, wide, NaN-containing frame — run
 through each lever to `evaluate()` would have caught all three before a user did.
@@ -85,6 +87,8 @@ through each lever to `evaluate()` would have caught all three before a user did
   completes and produces finite metrics. Fast to run, high regression value.
 
 ### R2 — Report threshold-independent metrics for classification
+
+> **Status: implemented in PR #6.** Every classification run reports ROC AUC and average precision next to F1.
 The classification baseline reported **F1 = 0.00**, which conflates two very
 different situations: "the ranking is fine but 0.5 is the wrong threshold" vs
 "the ranking itself is bad." We could only tell them apart by writing a separate
@@ -98,6 +102,8 @@ not thresholding — the opposite of what the anomaly detector showed.
 - **Where:** metrics assembly in [`pdm/fault_prediction/train.py`](../../pdm/fault_prediction/train.py).
 
 ### R3 — Make the classification quality gate imbalance-aware
+
+> **Status: implemented.** `classification_quality_gate` in `pdm/fault_prediction/metrics.py` keeps F1 ≥ 0.50 when the training positive rate is ≥ 1%, and below 1% gates on ROC AUC ≥ 0.75 and AP lift (AP ÷ positive rate) ≥ 5×. Multi-label passes when at least half of the scored labels pass. The result is written to `metrics.json["quality_gate"]` and printed with the positive rate.
 `Test F1 ≥ 0.50` at the default 0.5 threshold
 ([SKILL.md:325](../../SKILL.md), [evaluate path in train.py]) is essentially
 unachievable at 0.17% positives and flags a usable ranker as a red ❌. The anomaly
@@ -147,7 +153,7 @@ and dropped it by hand in the loader. There is currently no leakage guidance in
 
 ### R7 — Deliver the threshold selection the docs already promise
 
-> **Status: implemented by this change.** Classification now maps balanced / recall / precision priorities to F1 / F2 / F0.5 objectives and uses AutoGluon's internal validation data to calibrate the deployable binary decision threshold. The selected threshold is persisted and reported in metrics; final test labels remain evaluation-only.
+> **Status: implemented in PRs #10 and #11.** Classification now maps balanced / recall / precision priorities to F1 / F2 / F0.5 objectives and uses AutoGluon's internal validation data to calibrate the deployable binary decision threshold. The selected threshold is persisted and reported in metrics; final test labels remain evaluation-only.
 
 Phase-2 item 4 ([SKILL.md:218](../../SKILL.md)) asks for an operating priority that affects both model selection and threshold selection. The implementation deliberately uses F2 and F0.5 for recall- and precision-emphasis instead of maximizing pure recall or precision, which can produce degenerate all-positive or almost-all-negative operating points.
 

@@ -82,7 +82,7 @@ s3://<output-bucket>/<YYYYMMDD_HHMM>/
 | File | Contract |
 |------|----------|
 | `metadata.json` | `{"feature_names": [...], "label_names": [...], "formulation": str, "training_date": str, "n_train_samples": int, "n_features": int}`. Authoritative source for column alignment at inference. |
-| `metrics.json` | Classification metrics include F1, precision, recall, ROC AUC, average precision, `optimization_priority`, `eval_metric`, and the validation-calibrated `decision_threshold`; multi-label runs include the same operating-point fields per label plus positive_rate and aggregate mean/median metrics. ROC AUC and average precision are `null` when a test split contains only one class. Optional: feature_importance. |
+| `metrics.json` | Classification metrics include F1, precision, recall, ROC AUC, average precision, `optimization_priority`, `eval_metric`, the validation-calibrated `decision_threshold`, and `quality_gate` (`passed`, `criterion` = `f1` or `ranking`, `positive_rate`, `reason`); multi-label runs include the same operating-point and gate fields per label plus positive_rate, aggregate mean/median metrics, and an aggregate `quality_gate`. ROC AUC and average precision are `null` when a test split contains only one class. Optional: feature_importance. |
 | `baseline_stats.json` | Per-feature: mean, std, q25, q50, q75, min, max. For drift detection at inference time. |
 | `ag_model/` | AutoGluon model directory. One subdirectory per label for multi-label. Each contains model weights, version info, and predictor config. |
 | `inference.py` | Implements SageMaker hosting contract: `model_fn(model_dir)`, `input_fn(body, content_type)`, `predict_fn(input, model)`, `output_fn(result, content_type)`. Standalone — no imports from `pdm.*`. |

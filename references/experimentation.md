@@ -371,10 +371,13 @@ Stop the experimentation loop when:
 |-------|-----------|-----------|
 | Anomaly Detection (labels) | AUROC | ≥ 0.75 |
 | Anomaly Detection (no labels) | Synthetic detection rate | ≥ 80% |
-| Classification | Test F1 | ≥ 0.50 |
-| Multi-label | Median test F1 | ≥ 0.50 |
+| Classification (positive rate ≥ 1%) | Test F1 at the calibrated threshold | ≥ 0.50 |
+| Classification (positive rate < 1%) | Test ROC AUC **and** AP lift (AP ÷ positive rate) | ≥ 0.75 and ≥ 5× |
+| Multi-label | Labels passing their per-label classification gate | ≥ half |
 | RUL | Test RMSE | < 50% of RUL range |
 | Survival | Concordance index | > 0.60 |
+
+The classification gate is computed by the training scripts and written to `metrics.json["quality_gate"]` (per label under `labels.<name>.quality_gate` for multi-label). The positive rate is the training rate before any resampling. Below 1% positives, F1 ≥ 0.50 is close to unachievable even for a useful ranker, so the gate switches to threshold-independent ranking metrics — the same reasoning as the anomaly-detection AUROC gate.
 
 ## Validation Gate
 

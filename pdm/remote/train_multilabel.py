@@ -47,7 +47,9 @@ def main():
     from pdm.fault_prediction.metrics import (
         classification_eval_metric,
         classification_eval_metric_name,
+        classification_quality_gate,
         evaluate_binary_classifier,
+        multilabel_quality_gate,
         normalize_optimization_priority,
         predictor_decision_threshold,
     )
@@ -96,6 +98,9 @@ def main():
             "eval_metric": eval_metric_name,
             "decision_threshold": round(predictor_decision_threshold(predictor), 6),
             "best_model": predictor.model_best, "top_features": top_feats,
+            "quality_gate": classification_quality_gate(
+                cls_metrics["f1"], cls_metrics["roc_auc"], cls_metrics["average_precision"], pos_rate
+            ),
         }
 
     if workers > 1:
@@ -128,6 +133,9 @@ def main():
         if avg_precisions:
             metrics["mean_test_average_precision"] = round(float(np.mean(avg_precisions)), 4)
             metrics["median_test_average_precision"] = round(float(np.median(avg_precisions)), 4)
+        metrics["quality_gate"] = multilabel_quality_gate(
+            {k: v["quality_gate"] for k, v in scored.items()}
+        )
 
     metadata = {
         "feature_names": feature_cols, "label_names": label_cols,
