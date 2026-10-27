@@ -9,12 +9,7 @@ import joblib
 from autogluon.tabular import TabularPredictor
 
 from pdm.base import PDMModel, PredictionResult, TrainResult
-
-
-def nasa_scoring(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    """NASA PHM'08 asymmetric scoring (lower is better)."""
-    d = y_pred - y_true
-    return float(np.where(d < 0, np.exp(-d / 13) - 1, np.exp(d / 10) - 1).sum())
+from pdm.rul.metrics import nasa_scoring  # noqa: F401 - re-exported for backward compatibility
 
 
 def sliding_window_features(df: pd.DataFrame, unit_col: str, sensor_cols: list[str],

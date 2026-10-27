@@ -33,25 +33,8 @@ from pdm.fault_prediction.metrics import (
 )
 
 
-def nasa_scoring(y_true, y_pred):
-    """NASA PHM'08 asymmetric scoring function."""
-    d = y_pred - y_true
-    return float(np.where(d < 0, np.exp(-d / 13) - 1, np.exp(d / 10) - 1).sum())
-
-
-def _nasa_ag_metric(y_true, y_pred):
-    """AutoGluon-compatible NASA scoring (lower is better, negated for maximization)."""
-    d = y_pred - y_true
-    score = float(np.where(d < 0, np.exp(-d / 13) - 1, np.exp(d / 10) - 1).sum())
-    return -score  # negate so AutoGluon maximizes
-
-
-nasa_ag_scorer = None
-try:
-    from autogluon.core.metrics import make_scorer
-    nasa_ag_scorer = make_scorer("nasa_score", _nasa_ag_metric, greater_is_better=True, needs_proba=False)
-except ImportError:
-    pass
+from pdm.rul.metrics import NASA_AG_SCORER as nasa_ag_scorer
+from pdm.rul.metrics import nasa_scoring
 
 
 def detect_formulation(df: pd.DataFrame) -> str:
