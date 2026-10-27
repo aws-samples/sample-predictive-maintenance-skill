@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -17,26 +18,23 @@ from sklearn.metrics import (
 )
 
 
-def _f2_score(y_true, y_pred) -> float:
-    """F2: emphasize recall while still penalizing false alarms."""
-    return float(fbeta_score(y_true, y_pred, beta=2.0, zero_division=0))
-
-
-def _f05_score(y_true, y_pred) -> float:
-    """F0.5: emphasize precision while still rewarding failure coverage."""
-    return float(fbeta_score(y_true, y_pred, beta=0.5, zero_division=0))
-
-
+# AutoGluon pickles the eval_metric into the saved predictor. The score
+# functions must therefore be importable wherever the model is loaded,
+# including the standalone serving container, which has sklearn but not pdm.
+# A functools.partial over sklearn's fbeta_score pickles as a reference to
+# sklearn, so never wrap these in functions defined in this module.
+# F2 emphasizes recall while still penalizing false alarms; F0.5 emphasizes
+# precision while still rewarding failure coverage.
 F2_SCORER = make_scorer(
     name="f2",
-    score_func=_f2_score,
+    score_func=partial(fbeta_score, beta=2.0, zero_division=0),
     optimum=1.0,
     greater_is_better=True,
     needs_class=True,
 )
 F05_SCORER = make_scorer(
     name="f0.5",
-    score_func=_f05_score,
+    score_func=partial(fbeta_score, beta=0.5, zero_division=0),
     optimum=1.0,
     greater_is_better=True,
     needs_class=True,

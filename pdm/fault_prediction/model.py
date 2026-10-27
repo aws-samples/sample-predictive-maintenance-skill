@@ -62,7 +62,10 @@ class FailureClassifier(PDMModel):
       - Multi-label classification (label_* columns)
 
     Options:
-      - use_smote (bool, default False): Apply SMOTE when positive rate < 10%
+      - use_smote (bool, default False): Apply SMOTE when positive rate < 10%.
+        Note: AutoGluon calibrates the decision threshold on validation rows
+        drawn from the (oversampled) training input, so with SMOTE enabled the
+        threshold is partly tuned on synthetic positives.
       - optimization_priority (str, default "balanced"): balanced, recall, or precision
       - optimize_threshold (bool, optional): Backward-compatible control for AutoGluon's
         validation-only decision-threshold calibration. Test labels are never used.
