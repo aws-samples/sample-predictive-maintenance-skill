@@ -51,7 +51,9 @@ pdm/
 
 ## Requirements
 
-Python 3.11+, uv, boto3, pyarrow, pandas, numpy, scikit-learn, autogluon.tabular
+Python 3.11+ (3.12 pinned for deployment), uv. The base install is the slim inference
+core (pandas, numpy, scikit-learn, scipy, joblib); AutoGluon, survival, AWS I/O, serving,
+edge and training dependencies are extras — see [Development.md](../Development.md#dependency-layout).
 
 ---
 

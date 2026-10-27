@@ -201,12 +201,42 @@ Examples of "net new" features: drift detection, new benchmark loaders, uncertai
 git clone <repo-url> ~/.kiro/skills/predictive-maintenance
 cd ~/.kiro/skills/predictive-maintenance
 
-# Install core + test dependencies
+# Install the full training + test environment (default "dev" group, exact
+# versions from uv.lock, Python from .python-version)
 uv sync
 
 # Verify installation
 uv run pytest tests/
 ```
+
+### Dependency Layout
+
+The `pdm-project` base install is the **slim inference core** (numpy, pandas,
+scikit-learn, scipy, joblib). Everything else is an extra, so each deployment
+target installs only what loading and running its models needs:
+
+| Extra | Adds | Used by |
+|-------|------|---------|
+| `tabular` | AutoGluon (exact pin) | Classification and RUL models |
+| `survival` | lifelines, scikit-survival | Survival models |
+| `aws` | boto3, pyarrow, tqdm | S3 / Parquet I/O, batch inference |
+| `serve` | `tabular` + `aws` + Flask | SageMaker endpoint and batch container |
+| `edge` | awsiotsdk | Greengrass component (plus `tabular` / `survival` per formulation) |
+| `train` | `tabular` + `survival` + `aws` + matplotlib, shap, imbalanced-learn, optuna | Training |
+| `test` | `train` + pytest | Development |
+
+`uv sync` installs the default `dev` group (`pdm-project[test]`). Deployment
+targets never resolve dependencies themselves; they install the locked versions:
+
+```bash
+uv run python -m pdm.deployment.requirements --target edge --model-dir ./model -o requirements.txt
+uv run python -m pdm.deployment.requirements --extras serve -o requirements.txt
+```
+
+After changing dependencies in `pyproject.toml`, run `uv lock` and commit `uv.lock`.
+`tests/test_slim_inference_install.py` checks that every formulation's model loads
+and predicts with only its target's install; set `PDM_SLIM_VENV_TEST=1` to build real
+slim virtual environments for that check.
 
 ### Optional Extras
 
@@ -240,7 +270,7 @@ uv pip install -e ".[tsfresh,anomaly,monitoring]"
 
 ### Requirements
 
-- **Python 3.11+**
+- **Python 3.12** (pinned in `.python-version`; the library itself supports 3.11+)
 - **uv** (recommended) or pip
 - **AWS credentials** with S3 read access (for data loading and deployment)
 

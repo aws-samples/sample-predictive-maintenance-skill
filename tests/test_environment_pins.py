@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _pinned_autogluon() -> str:
-    deps = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
-    pins = [d for d in deps if d.startswith("autogluon.tabular")]
+    extras = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["optional-dependencies"]
+    pins = [d for d in extras["tabular"] if d.startswith("autogluon.tabular")]
     assert len(pins) == 1, pins
     match = re.fullmatch(r"autogluon\.tabular\[[^\]]+\]==(\d+\.\d+\.\d+)", pins[0])
     assert match, f"AutoGluon must be pinned exactly: {pins[0]}"
