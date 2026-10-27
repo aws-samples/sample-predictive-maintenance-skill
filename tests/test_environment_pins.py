@@ -68,3 +68,9 @@ def test_project_setup_copies_the_lock(path):
     text = (ROOT / path).read_text()
     for name in ("pyproject.toml", "uv.lock", ".python-version"):
         assert name in text
+
+
+def test_edge_component_installs_pinned_autogluon():
+    """Edge loads classification/RUL models via pdm, which imports AutoGluon."""
+    reqs = (ROOT / "edge_component" / "requirements.txt").read_text().splitlines()
+    assert f"autogluon.tabular[lightgbm,catboost,xgboost]=={_pinned_autogluon()}" in reqs
