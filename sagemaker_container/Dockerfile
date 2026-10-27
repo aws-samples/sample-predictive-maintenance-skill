@@ -4,8 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm 
 
 RUN pip install --no-cache-dir \
     typing_extensions \
-    "autogluon.tabular[lightgbm]==1.5.0" \
-    autogluon.core==1.5.0 \
+    "autogluon.tabular[lightgbm,catboost,xgboost]==1.6.3" \
+    autogluon.core==1.6.3 \
     flask \
     gunicorn \
     boto3 \

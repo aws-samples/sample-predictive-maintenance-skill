@@ -35,8 +35,7 @@ Use this skill when the user:
 │   └── readme-template.md        # Phase 9: 9-section README structure
 ├── scripts/
 │   ├── setup.sh                     # One-command project setup
-│   ├── save_model.sh                # Phase 6: upload artifacts to S3
-│   └── pyproject.toml               # Project dependencies
+│   └── save_model.sh                # Phase 6: upload artifacts to S3
 ├── sagemaker_container/
 │   ├── Dockerfile               # Custom container (Python 3.12 + AutoGluon + lifelines + Flask)
 │   ├── serve.py                 # Flask server (/ping + /invocations)

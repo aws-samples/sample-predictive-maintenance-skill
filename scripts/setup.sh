@@ -6,7 +6,11 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Copying project files..."
-cp "$SKILL_DIR"/scripts/pyproject.toml "$SKILL_DIR"/scripts/save_model.sh .
+# pyproject.toml + uv.lock + .python-version pin the exact training environment
+# (Python and AutoGluon versions) that the inference container and edge
+# component reproduce. Do not re-resolve them independently.
+cp "$SKILL_DIR"/pyproject.toml "$SKILL_DIR"/uv.lock "$SKILL_DIR"/.python-version .
+cp "$SKILL_DIR"/scripts/save_model.sh .
 cp -r "$SKILL_DIR/pdm" ./pdm
 
 echo "Creating directory structure..."

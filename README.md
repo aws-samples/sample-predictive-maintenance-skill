@@ -132,7 +132,7 @@ Without this skill installed, the experimentation phase still works — the agen
 
 ## Requirements
 
-- **Python 3.11+** with `uv` (or pip)
+- **Python 3.12** (pinned in `.python-version`; `uv` installs it automatically) with `uv`
 - **AWS credentials** with S3 read access + SageMaker (for deployment)
 - **Kiro CLI**, or **Kiro IDE**, or **Claude Code**
 
@@ -178,8 +178,7 @@ predictive-maintenance/
 │   └── readme-template.md
 ├── scripts/                    # Setup & utilities
 │   ├── setup.sh                # One-command project bootstrap
-│   ├── save_model.sh           # Upload artifacts to S3
-│   └── pyproject.toml          # Dependencies
+│   └── save_model.sh           # Upload artifacts to S3
 ├── pdm/                        # Standalone PdM library (usable without the skill)
 │   ├── README.md               # Library documentation
 │   ├── data/                   # S3 exploration, EAV aggregation, feature utils

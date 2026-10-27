@@ -1,7 +1,7 @@
 # Dependencies are baked into the Docker image (see Dockerfile).
 # This file exists for reference only — not used at runtime.
 typing_extensions
-autogluon.tabular[lightgbm]==1.5.0
-autogluon.core==1.5.0
+autogluon.tabular[lightgbm,catboost,xgboost]==1.6.3
+autogluon.core==1.6.3
 flask
 gunicorn

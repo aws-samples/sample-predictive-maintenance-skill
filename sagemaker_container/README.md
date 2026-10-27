@@ -10,13 +10,13 @@ Custom container for deploying AutoGluon predictive maintenance models to SageMa
 | AutoGluon DLC version mismatch | DLC version ≠ training version → crash on model load |
 | sklearn container + pip install | Can't install AutoGluon within SageMaker's 20-minute health check timeout |
 
-This container bakes in the exact AutoGluon version (1.5.0), starts in seconds, and uses a lightweight Flask server.
+This container bakes in the exact AutoGluon version pinned in `pyproject.toml` / `uv.lock` (1.6.3), starts in seconds, and uses a lightweight Flask server.
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `Dockerfile` | Python 3.12 + AutoGluon 1.5.0 + LightGBM + Flask |
+| `Dockerfile` | Python 3.12 + AutoGluon 1.6.3 (LightGBM, CatBoost, XGBoost) + Flask |
 | `serve.py` | Flask server: `/ping` (instant 200) + `/invocations` (lazy model load) |
 | `inference.py` | `model_fn` / `input_fn` / `predict_fn` / `output_fn` handlers |
 | `requirements.txt` | Reference only — dependencies are baked into the Dockerfile |

@@ -47,7 +47,7 @@ cat fault_prediction/baseline/model/environment.json | python3 -c "import json,s
 cat fault_prediction/baseline/model/ag_model/*/version.txt | head -1
 ```
 
-Update `<SKILL_DIR>/sagemaker_container/Dockerfile` if versions differ from defaults (Python 3.12, AutoGluon 1.5.0).
+Projects created by `setup.sh` train with the versions pinned in `.python-version` and `uv.lock` (Python 3.12, AutoGluon 1.6.3), which the Dockerfile matches. If `environment.json` shows anything else, the training environment drifted from the lock — retrain in the locked environment rather than editing the container.
 
 ### Step 8.1b: Pre-check Existing Resources
 

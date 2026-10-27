@@ -395,10 +395,10 @@ def package_source(project_dir: Path, formulation: str) -> Path:
     # Copy the appropriate entry script
     entry = "train_multilabel.py" if formulation == "multilabel" else "train_remote.py"
     shutil.copy2(project_dir / "pdm" / "remote" / entry, tmp / entry)
-    (tmp / "requirements.txt").write_text(
-        "autogluon.tabular[lightgbm,catboost,xgboost]>=1.2\n"
-        "lifelines>=0.29\noptuna>=3.0\nray>=2.10.0,<2.45.0\n"
-    )
+    # Pinned to the local environment so the model can be loaded by the
+    # inference container (AutoGluon requires a version match).
+    from pdm.remote.requirements import training_requirements
+    (tmp / "requirements.txt").write_text(training_requirements())
     fd, _tmp = tempfile.mkstemp(suffix=".tar.gz")
     os.close(fd)
     tar_path = Path(_tmp)

@@ -51,11 +51,10 @@ def package_source(skill_dir: Path) -> str:
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "remote"))
     # Copy the remote entry script
     shutil.copy2(skill_dir / "pdm" / "remote" / "train_remote.py", dest / "train_remote.py")
-    # Requirements for container
-    (dest / "requirements.txt").write_text(
-        "autogluon.tabular[lightgbm,catboost,xgboost]>=1.2\noptuna>=3.0\n"
-        "lifelines>=0.29\nray>=2.10.0,<2.45.0\n"
-    )
+    # Requirements for container: pinned to the local environment so the model
+    # can be loaded by the inference container (AutoGluon requires a version match).
+    from pdm.remote.requirements import training_requirements
+    (dest / "requirements.txt").write_text(training_requirements())
     total = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
     _log(f"Source package: {total / 1024:.0f} KB")
     return str(dest)
