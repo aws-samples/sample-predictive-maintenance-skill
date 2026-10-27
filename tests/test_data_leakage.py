@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from pdm.data.leakage import detect_feature_leakage, format_leakage_report
+from pdm.fault_prediction.validate_dataset import validate
 
 
 def _findings(report, check=None, column=None):
@@ -158,3 +159,50 @@ def test_format_leakage_report_is_human_readable():
     text = format_leakage_report(report)
     assert "review before training" in text
     assert "original_index" in text
+
+
+def test_dataset_validator_surfaces_single_target_leakage_as_warning(tmp_path, capsys):
+    rng = np.random.default_rng(13)
+    n = 100
+    target = np.tile([0, 1], n // 2)
+    df = pd.DataFrame({
+        "original_index": np.arange(n),
+        "target_copy": target,
+        "sensor": rng.normal(size=n),
+        "label": target,
+    })
+    path = tmp_path / "binary.csv"
+    df.to_csv(path, index=False)
+
+    assert validate(str(path), target_col="label") is True
+
+    output = capsys.readouterr().out
+    assert "Possible feature leakage" in output
+    assert "original_index" in output
+    assert "row order" in output
+    assert "target_copy" in output
+    assert "exactly matches target 'label'" in output
+    assert "No blocking errors" in output
+
+
+def test_dataset_validator_surfaces_multilabel_target_proxy(tmp_path, capsys):
+    rng = np.random.default_rng(17)
+    n = 100
+    label_a = rng.integers(0, 2, size=n)
+    label_b = np.tile([0, 1], n // 2)
+    df = pd.DataFrame({
+        "sensor": rng.normal(size=n),
+        "proxy_b": label_b,
+        "label_a": label_a,
+        "label_b": label_b,
+    })
+    path = tmp_path / "multilabel.csv"
+    df.to_csv(path, index=False)
+
+    assert validate(str(path)) is True
+
+    output = capsys.readouterr().out
+    assert "Detected multi-label dataset: 2 labels" in output
+    assert "Possible feature leakage" in output
+    assert "proxy_b" in output
+    assert "exactly matches target 'label_b'" in output
