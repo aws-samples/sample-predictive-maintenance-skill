@@ -11,6 +11,7 @@ from pdm.fault_prediction import train as training
 class _FakePredictor:
     positive_class = 1
     model_best = "FakeModel"
+    decision_threshold = 0.37
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -43,6 +44,7 @@ def _args(tmp_path):
         warm_start=False,
         skip_importance=True,
         workers=1,
+        optimization_priority="balanced",
     )
 
 
@@ -67,6 +69,8 @@ def test_binary_training_reports_ranking_metrics(monkeypatch, tmp_path):
     assert metrics["recall"] == 0.0
     assert metrics["roc_auc"] == pytest.approx(1.0)
     assert metrics["average_precision"] == pytest.approx(1.0)
+    assert metrics["optimization_priority"] == "balanced"
+    assert metrics["decision_threshold"] == pytest.approx(0.37)
 
 
 def test_multilabel_training_reports_per_label_ranking_metrics(monkeypatch, tmp_path):
@@ -94,3 +98,5 @@ def test_multilabel_training_reports_per_label_ranking_metrics(monkeypatch, tmp_
     assert result["test_f1"] == 0.0
     assert result["test_roc_auc"] == pytest.approx(1.0)
     assert result["test_average_precision"] == pytest.approx(1.0)
+    assert result["optimization_priority"] == "balanced"
+    assert result["decision_threshold"] == pytest.approx(0.37)

@@ -26,6 +26,7 @@ def main():
     rul_cap = int(hps.get("rul-cap", 125))
     time_limit = int(hps.get("time-limit", 300))
     n_trials = int(hps.get("n-trials", 50))
+    optimization_priority = hps.get("optimization-priority", "balanced")
 
     print(f"Formulation: {formulation}, Backend: {backend}")
     print(f"Window: {window_size}, RUL cap: {rul_cap}, Time: {time_limit}s, Trials: {n_trials}")
@@ -48,10 +49,19 @@ def main():
     elif formulation == "classification":
         # Use AutoGluon via fault_prediction train logic
         from autogluon.tabular import TabularPredictor
-        from pdm.fault_prediction.metrics import evaluate_binary_classifier
+        from pdm.fault_prediction.metrics import (
+            classification_eval_metric,
+            classification_eval_metric_name,
+            evaluate_binary_classifier,
+            normalize_optimization_priority,
+            predictor_decision_threshold,
+        )
         target = "machine_failure"
+        optimization_priority = normalize_optimization_priority(optimization_priority)
+        eval_metric = classification_eval_metric(optimization_priority)
+        eval_metric_name = classification_eval_metric_name(optimization_priority)
         predictor = TabularPredictor(
-            label=target, eval_metric="f1", problem_type="binary",
+            label=target, eval_metric=eval_metric, problem_type="binary",
             path=str(model_dir / "ag_model"), verbosity=1,
         ).fit(train_data=train_df, time_limit=time_limit, presets="best")
         X_test = test_df.drop(columns=[target])
@@ -64,6 +74,9 @@ def main():
             "recall": round(float(cls_metrics["recall"]), 4),
             "roc_auc": None if cls_metrics["roc_auc"] is None else round(float(cls_metrics["roc_auc"]), 4),
             "average_precision": None if cls_metrics["average_precision"] is None else round(float(cls_metrics["average_precision"]), 4),
+            "optimization_priority": optimization_priority,
+            "eval_metric": eval_metric_name,
+            "decision_threshold": round(predictor_decision_threshold(predictor), 6),
         }
         result = type("R", (), {"metrics": result_metrics})()
 

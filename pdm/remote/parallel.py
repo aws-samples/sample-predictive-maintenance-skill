@@ -483,8 +483,12 @@ def cmd_submit(region: str, formulation: str, experiments_path: Path,
         hp = {"sagemaker_program": entry_script,
               "sagemaker_submit_directory": f"s3://{bucket}/{s3_source_key}"}
         if formulation == "multilabel":
-            hp.update({"experiment-name": name, "time-limit": str(exp.get("time-limit", 120)),
-                       "presets": exp.get("presets", "best")})
+            hp.update({
+                "experiment-name": name,
+                "time-limit": str(exp.get("time-limit", 120)),
+                "presets": exp.get("presets", "best"),
+                "optimization-priority": exp.get("optimization-priority", "balanced"),
+            })
         else:
             hp.update({"formulation": formulation,
                        "window-size": str(exp.get("window-size", 30)),
@@ -492,6 +496,8 @@ def cmd_submit(region: str, formulation: str, experiments_path: Path,
                        "time-limit": str(exp.get("time-limit", 300)),
                        "backend": exp.get("backend", "optuna"),
                        "n-trials": str(exp.get("n-trials", 50))})
+            if formulation == "classification":
+                hp["optimization-priority"] = exp.get("optimization-priority", "balanced")
 
         training_params = {
             "TrainingJobName": job_name, "RoleArn": role,

@@ -23,6 +23,7 @@ def main():
     presets = hps.get("presets", "best")
     experiment_name = hps.get("experiment-name", "unknown")
     workers = int(hps.get("workers", 1))
+    optimization_priority = hps.get("optimization-priority", "balanced")
 
     print(f"Experiment: {experiment_name}, Time/label: {time_limit}s, Presets: {presets}, Workers: {workers}")
 
@@ -43,9 +44,24 @@ def main():
     model_dir.mkdir(parents=True, exist_ok=True)
 
     from autogluon.tabular import TabularPredictor
-    from pdm.fault_prediction.metrics import evaluate_binary_classifier
+    from pdm.fault_prediction.metrics import (
+        classification_eval_metric,
+        classification_eval_metric_name,
+        evaluate_binary_classifier,
+        normalize_optimization_priority,
+        predictor_decision_threshold,
+    )
 
-    metrics = {"formulation": "multi-label classification", "experiment": experiment_name, "labels": {}}
+    optimization_priority = normalize_optimization_priority(optimization_priority)
+    eval_metric = classification_eval_metric(optimization_priority)
+    eval_metric_name = classification_eval_metric_name(optimization_priority)
+    metrics = {
+        "formulation": "multi-label classification",
+        "experiment": experiment_name,
+        "optimization_priority": optimization_priority,
+        "eval_metric": eval_metric_name,
+        "labels": {},
+    }
 
     def _train_one_label(label):
         n_pos = int(train_df[label].sum())
@@ -54,7 +70,7 @@ def main():
             return label, {"skipped": True, "reason": "too_few_positives"}
 
         predictor = TabularPredictor(
-            label=label, eval_metric="f1", problem_type="binary",
+            label=label, eval_metric=eval_metric, problem_type="binary",
             path=str(model_dir / "ag_model" / label), verbosity=0,
         ).fit(train_data=train_df[feature_cols + [label]], time_limit=time_limit, presets=presets)
 
@@ -76,6 +92,9 @@ def main():
             "test_roc_auc": None if cls_metrics["roc_auc"] is None else round(cls_metrics["roc_auc"], 4),
             "test_average_precision": None if cls_metrics["average_precision"] is None else round(cls_metrics["average_precision"], 4),
             "positive_rate": round(pos_rate, 5),
+            "optimization_priority": optimization_priority,
+            "eval_metric": eval_metric_name,
+            "decision_threshold": round(predictor_decision_threshold(predictor), 6),
             "best_model": predictor.model_best, "top_features": top_feats,
         }
 

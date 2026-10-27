@@ -6,13 +6,86 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from autogluon.core.metrics import make_scorer
 from sklearn.metrics import (
     average_precision_score,
     f1_score,
+    fbeta_score,
     precision_score,
     recall_score,
     roc_auc_score,
 )
+
+
+def _f2_score(y_true, y_pred) -> float:
+    """F2: emphasize recall while still penalizing false alarms."""
+    return float(fbeta_score(y_true, y_pred, beta=2.0, zero_division=0))
+
+
+def _f05_score(y_true, y_pred) -> float:
+    """F0.5: emphasize precision while still rewarding failure coverage."""
+    return float(fbeta_score(y_true, y_pred, beta=0.5, zero_division=0))
+
+
+F2_SCORER = make_scorer(
+    name="f2",
+    score_func=_f2_score,
+    optimum=1.0,
+    greater_is_better=True,
+    needs_class=True,
+)
+F05_SCORER = make_scorer(
+    name="f0.5",
+    score_func=_f05_score,
+    optimum=1.0,
+    greater_is_better=True,
+    needs_class=True,
+)
+
+OPTIMIZATION_METRICS = {
+    "balanced": "f1",
+    "recall": F2_SCORER,
+    "precision": F05_SCORER,
+}
+OPTIMIZATION_METRIC_NAMES = {
+    "balanced": "f1",
+    "recall": "f2",
+    "precision": "f0.5",
+}
+
+
+def normalize_optimization_priority(priority: str = "balanced") -> str:
+    """Normalize the user-facing classification optimization priority."""
+    normalized = str(priority).strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {"f1": "balanced", "balanced_f1": "balanced"}
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in OPTIMIZATION_METRICS:
+        choices = ", ".join(OPTIMIZATION_METRICS)
+        raise ValueError(f"Unknown optimization priority {priority!r}; choose one of: {choices}")
+    return normalized
+
+
+def classification_eval_metric(priority: str = "balanced"):
+    """Return the AutoGluon scorer that matches the operating priority.
+
+    Recall and precision priorities use F2 and F0.5 rather than pure recall or
+    precision. This preserves the requested bias without selecting degenerate
+    all-positive or almost-all-negative operating points.
+    """
+    return OPTIMIZATION_METRICS[normalize_optimization_priority(priority)]
+
+
+def classification_eval_metric_name(priority: str = "balanced") -> str:
+    """Return the stable, JSON-safe name of the priority's evaluation metric."""
+    return OPTIMIZATION_METRIC_NAMES[normalize_optimization_priority(priority)]
+
+
+def predictor_decision_threshold(predictor) -> float:
+    """Return a validated binary decision threshold, defaulting to 0.5."""
+    threshold = float(getattr(predictor, "decision_threshold", 0.5))
+    if not np.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
+        raise ValueError(f"Invalid predictor decision threshold: {threshold}")
+    return threshold
 
 
 def binarize_labels(values, positive_class: Any) -> np.ndarray:
