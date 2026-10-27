@@ -197,7 +197,7 @@ Creates venv, installs dependencies, copies scripts + libraries. Then create `lo
 
 **Read [references/data-exploration.md](references/data-exploration.md) for full guidelines** — covers bucket exploration, schema analysis, join validation, question format, and decision recording.
 
-Steps: discover bucket structure → explore schemas → validate join keys → write `data_exploration.md` → present questions → **STOP AND WAIT** → validate answers → record decisions.
+Steps: discover bucket structure → explore schemas → validate join keys → run the leakage guard and record findings → write `data_exploration.md` → present questions → **STOP AND WAIT** → validate answers → record decisions.
 
 **Formulation recommendation**: When asking the user which formulation to use, explain the tradeoffs in plain language (see `pdm/README.md` § "Choosing a Formulation"). Use the decision flowchart:
 - Run-to-failure data + need precise timeline → RUL
