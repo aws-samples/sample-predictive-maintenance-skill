@@ -87,7 +87,31 @@ result = validate_join(
 - If overlap < 10%, the join is broken — look for alternative columns
 - Log all validated joins and their overlap % in `log.md`
 
-## Step 2.4: Write `data_exploration.md`
+## Step 2.4: Run the Leakage Guard
+
+Before finalizing feature candidates, run the cheap leakage scan on any assembled candidate modeling frame. If the target has not been chosen yet, run the row-order scan now and repeat with `target_columns` after the user confirms the target.
+
+```python
+from pdm.data.leakage import detect_feature_leakage, format_leakage_report
+
+report = detect_feature_leakage(
+    candidate_df,
+    target_columns=target_columns,
+    ignore_columns=[c for c in [entity_col, split_time_col] if c],
+)
+print(format_leakage_report(report))
+```
+
+The guard flags three high-signal cases:
+- near-perfect monotonic correlation with row order (for example `original_index` or a clock/index proxy);
+- a feature that exactly copies a target;
+- near-perfect numeric correlation with a target.
+
+**Do not auto-drop flagged columns.** A strong correlation can occasionally be legitimate. Record every finding under **Data Quality Observations**, explain why it may leak future/target information, and ask the user to confirm exclusion when the column is otherwise a candidate model feature. Known entity keys or split-only timestamps that are never model features may be passed via `ignore_columns`.
+
+The Phase 3/4 `validate_dataset.py` gate repeats the same warning-only check on the final processed dataset, so a suspicious column missed during exploration is surfaced again before training.
+
+## Step 2.5: Write `data_exploration.md`
 
 Sections:
 
@@ -96,7 +120,7 @@ Sections:
 3. **Candidate Join Keys** — which columns connect tables, type mismatches, overlap %
 4. **Table Classification** — time-series, metadata, label source, supplementary
 5. **EAV Table Details** (if applicable) — entity/attribute/value columns, sensor list, partition metadata
-6. **Data Quality Observations** — nulls, type issues, sparse columns
+6. **Data Quality Observations** — nulls, type issues, sparse columns, leakage-guard findings and disposition
 7. **Feature Candidates** — grouped by signal type (electrical, thermal, behavioral, metadata)
 8. **Label Candidates** — all possible targets with source, construction logic, estimated positive rate
 
@@ -115,7 +139,7 @@ When merging, group by semantic similarity (e.g., related failure modes, similar
 
 **Ask the user** when a label falls in the merge/drop zone and there's no obvious merge target.
 
-## Step 2.5: Present Questions — STOP AND WAIT
+## Step 2.6: Present Questions — STOP AND WAIT
 
 Append `## Open Questions` with structured questions. Format:
 
@@ -189,14 +213,14 @@ After appending, tell the user and **STOP**.
 
 Either path is valid. Do NOT require one specific method.
 
-## Step 2.6: Validate Answers
+## Step 2.7: Validate Answers
 
 Once the user confirms:
 1. Read `[Answer]:` tags — if any empty, ask to fill in
 2. Check for contradictions (e.g. RUL chosen but label has no temporal component)
 3. If contradictions found, append `## Clarification Questions` and ask
 
-## Step 2.7: Record Decisions
+## Step 2.8: Record Decisions
 
 Append `## User Decisions` to `data_exploration.md`:
 

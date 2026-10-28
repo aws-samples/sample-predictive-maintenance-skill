@@ -14,6 +14,33 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+from pdm.data.leakage import detect_feature_leakage
+
+
+def _check_leakage(
+    df: pd.DataFrame,
+    target_columns: str | list[str],
+    warnings: list[str],
+    checks_passed: list[str],
+) -> None:
+    """Run the warning-only leakage guard used by all validation modes."""
+    ignore_columns = ["unit_id"] if "unit_id" in df.columns else []
+    report = detect_feature_leakage(
+        df,
+        target_columns=target_columns,
+        ignore_columns=ignore_columns,
+    )
+    findings = report["findings"]
+    if not findings:
+        checks_passed.append("No obvious feature leakage detected")
+        return
+
+    shown = findings[:10]
+    detail = "; ".join(finding["message"] for finding in shown)
+    if len(findings) > len(shown):
+        detail += f"; ... {len(findings) - len(shown)} more finding(s)"
+    warnings.append(f"Possible feature leakage ({len(findings)} finding(s)): {detail}")
+
 
 def validate(path: str, target_col: str | None = None) -> bool:
     """Return True if dataset passes all checks, False otherwise."""
@@ -66,18 +93,9 @@ def validate(path: str, target_col: str | None = None) -> bool:
     else:
         checks_passed.append(f"No zero-variance features (checked {len(feature_cols)} columns)")
 
-    # Check 4: ID leakage — features that correlate >0.95 with row index
-    idx = np.arange(len(df))
-    leaky = []
-    for c in feature_cols[:50]:  # check first 50 for speed
-        if df[c].nunique() > 10:
-            corr = np.corrcoef(idx, df[c].fillna(0).values)[0, 1]
-            if abs(corr) > 0.95:
-                leaky.append(c)
-    if leaky:
-        warnings.append(f"Possible ID/index leakage (corr>0.95 with row order): {leaky}")
-    else:
-        checks_passed.append("No ID/index leakage detected")
+    # Check 4: Feature leakage. Warning-only: suspicious columns require human
+    # review because high correlation can occasionally be legitimate.
+    _check_leakage(df, target_col, warnings, checks_passed)
 
     # Check 5: Class balance (classification) or RUL range (regression)
     is_rul = target_col.lower() == "rul" or df[target_col].nunique() > 20
@@ -150,18 +168,9 @@ def _validate_multilabel(df: pd.DataFrame, label_cols: list[str],
     else:
         checks_passed.append(f"No zero-variance features (checked {len(numeric_features)} columns)")
 
-    # Check 5: ID leakage
-    idx = np.arange(len(df))
-    leaky = []
-    for c in numeric_features[:50]:
-        if df[c].nunique() > 10:
-            corr = np.corrcoef(idx, df[c].fillna(0).values)[0, 1]
-            if abs(corr) > 0.95:
-                leaky.append(c)
-    if leaky:
-        warnings.append(f"Possible ID/index leakage (corr>0.95 with row order): {leaky}")
-    else:
-        checks_passed.append("No ID/index leakage detected")
+    # Check 5: Feature leakage across every label, not only the first 50
+    # numeric columns. Findings remain warnings for human review.
+    _check_leakage(df, label_cols, warnings, checks_passed)
 
     # Check 6: Per-label positive rates
     print(f"\n  Per-label positive rates:")

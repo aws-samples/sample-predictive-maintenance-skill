@@ -143,6 +143,8 @@ train tail, collapsed to 0.5 — exactly the gap this hides.)
   remain the honest headline.
 
 ### R6 — Add an automated leakage check in data exploration
+
+> **Status: implemented by this change.** `pdm.data.leakage.detect_feature_leakage` flags near-monotonic row-order proxies, exact target copies, and near-perfect target correlations without auto-dropping columns. The existing `validate_dataset.py` gate now uses the same detector for single-target and multi-label datasets, and Phase 2 guidance requires findings to be surfaced for user review.
 The raw file shipped an `original_index` column that monotonically tracks time;
 left in the feature set it lets a model "predict" trips from the clock. We caught
 and dropped it by hand in the loader. There is currently no leakage guidance in
