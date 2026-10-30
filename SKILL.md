@@ -197,13 +197,20 @@ Creates venv, installs dependencies, copies scripts + libraries. Then create `lo
 
 **Read [references/data-exploration.md](references/data-exploration.md) for full guidelines** — covers bucket exploration, schema analysis, join validation, question format, and decision recording.
 
-Steps: discover bucket structure → explore schemas → validate join keys → run the leakage guard and record findings → write `data_exploration.md` → present questions → **STOP AND WAIT** → validate answers → record decisions.
+Steps: discover bucket structure → explore schemas → validate join keys → run the leakage guard and record findings → assess classification label economics when relevant → write `data_exploration.md` → present questions → **STOP AND WAIT** → validate answers → record decisions.
 
-**Formulation recommendation**: When asking the user which formulation to use, explain the tradeoffs in plain language (see `pdm/README.md` § "Choosing a Formulation"). Use the decision flowchart:
+**Formulation recommendation**: When asking the user which formulation to use, explain the tradeoffs in plain language (see `pdm/README.md` § "Choosing a Formulation"). First use data structure and operational need to choose the candidate family:
 - Run-to-failure data + need precise timeline → RUL
 - Run-to-failure data + need alerts only → Classification
 - Devices maintained before failure (censored data) → Survival
 - Multiple independent failure modes → Multi-label classification
+
+For a binary or multi-label **classification candidate**, refine that recommendation with label economics before asking the user to confirm. Run `pdm.data.label_economics.analyze_classification_label_economics(...)` on the candidate modeling frame. It reports positive rate and, when entity/time ordering is available, distinct positive events (contiguous positive runs):
+- `anomaly_primary` → every selected label is <1% positive and/or has <20 distinct positive events; recommend anomaly detection as the primary model and classification as a secondary check for known failure modes.
+- `hybrid` → only some labels are sparse/few-event; recommend classification for supported labels plus anomaly detection for sparse/novel modes.
+- `classification_primary_candidate` → label scarcity alone does not argue against supervised classification; keep classification primary and decide separately whether anomaly detection adds value.
+
+The 1% / 20-event cutoffs are **screening thresholds, not universal laws**. Use them to expose weak label economics and explain the tradeoff; never skip explicit user confirmation.
 
 ### MANDATORY: Stop and Ask Before Phase 3
 
@@ -211,11 +218,11 @@ Steps: discover bucket structure → explore schemas → validate join keys → 
 
 **Always ask (even when the user provides some context in their initial prompt):**
 
-1. **Formulation** — confirm the recommended formulation (multi-label, binary, RUL, survival). Propose based on data evidence but get explicit confirmation.
+1. **Formulation** — confirm the recommended formulation (multi-label, binary, RUL, survival). Propose based on data evidence and operational need. For classification candidates, include positive rate and distinct positive-event counts when available, plus the label-economics recommendation (`anomaly_primary`, `hybrid`, or `classification_primary_candidate`). Get explicit confirmation.
 2. **Prediction window (horizon)** — how many days ahead should the model predict? This is an operational decision only the user can make (e.g., 7 days, 14 days, 30 days). It depends on maintenance lead times, not data properties.
 3. **Feature scope** — which tables/data sources to use as input features? List all available tables and ask the user to confirm which ones to include. Do NOT assume — some tables may be supplementary context only, not model inputs.
 4. **Optimization priority** — does the user prioritize recall (catch all failures), precision (minimize false alarms), or balanced F1? For classification, this maps to F2 (recall-emphasis), F0.5 (precision-emphasis), or F1 (balanced). AutoGluon selects the binary decision threshold on its internal validation data for that objective; final test labels are evaluation-only.
-5. **Anomaly detection** — also build an unsupervised model? Recommend based on data dimensionality.
+5. **Anomaly detection** — also build an unsupervised model? Recommend based on data dimensionality, label completeness, and label economics. If classification labels are very sparse (<1%) or few-event (<20 distinct events), recommend anomaly detection as primary or companion according to the label-economics result.
 
 **The agent MUST present these questions and STOP — do not fill in answers by assumption, even if the user's initial prompt seems to imply them.** The user may have additional context (operational constraints, business requirements, lead times) that changes the "obvious" answer.
 
@@ -249,7 +256,7 @@ uv run python pdm/raw_dataset.py
 
 Produces `./data/raw_train.csv` and `./data/raw_test.csv` — the **single source of truth** for all experiments.
 
-Log raw dataset shape, column count, label positive rates, and split sizes in `log.md`.
+Log raw dataset shape, column count, label positive rates, distinct positive-event counts for classification labels when temporal ordering is available, and split sizes in `log.md`.
 
 ---
 
