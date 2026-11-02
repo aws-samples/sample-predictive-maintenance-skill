@@ -13,6 +13,7 @@ pdm/
 ├── example_inference.py     # Reusable single-day inference script (Phase 7)
 ├── data/                    # Data loading & exploration
 │   ├── data_exploration.py  # S3/parquet discovery & schema inspection
+│   ├── label_economics.py   # Positive-rate/event-count formulation guidance
 │   ├── utils.py             # Feature engineering & caching utilities
 │   ├── dataset_schema.py    # DatasetMeta dataclass
 │   ├── feature_extraction.py # tsfresh wrapper with manual fallback
@@ -85,6 +86,24 @@ tree = explore_bucket("s3://my-bucket", extension=".parquet")
 schema = explore_schema("s3://my-bucket/telemetry/part-00000.parquet")
 candidates = discover_join_keys("my-bucket", prefixes=["telemetry/", "device_master/"], partitioned=["telemetry/"])
 ```
+
+### label_economics.py
+
+Advisory diagnostics for classification formulation choice. `analyze_classification_label_economics()` reports positive prevalence and, when temporal ordering is available, the number of distinct positive events rather than treating every positive row as an independent failure example.
+
+```python
+from pdm.data.label_economics import analyze_classification_label_economics
+
+report = analyze_classification_label_economics(
+    df,
+    label_columns=["label_overheating", "label_board_failure"],
+    entity_col="device_id",
+    time_col="observation_time",
+)
+print(report["recommendation"])
+```
+
+The default screening signals are <1% positive prevalence and <20 distinct positive events. When every selected label is sparse/few-event, the helper recommends anomaly detection as the primary formulation with classification as a secondary check. Mixed support yields a hybrid recommendation. These are guidance signals, not automatic model-selection rules.
 
 ### utils.py
 
@@ -320,6 +339,19 @@ Do you have run-to-failure data (devices that actually failed)?
 ```
 
 Multiple failure modes? Use **multi-label classification** — the library trains one model per label and returns probabilities for each failure type.
+
+### Refine Classification with Label Economics
+
+Before making classification the primary formulation, check how much independent failure evidence the labels actually contain. A dataset can have hundreds of positive rows but only a handful of real failure events if each incident spans many consecutive observations.
+
+Use `analyze_classification_label_economics()` during exploration. By default:
+- **<1% positive** is treated as sparse;
+- **<20 distinct positive events** is treated as few-event when entity/time ordering is available;
+- if every label is sparse/few-event, recommend **anomaly detection as the primary model** and classification as a secondary check for known failure modes;
+- if only some labels are sparse/few-event, use a **hybrid** strategy;
+- otherwise classification remains a strong primary candidate.
+
+These are screening thresholds, not universal cutoffs. RUL and survival evidence still takes precedence when the data structure supports those formulations, and the user still confirms the final modeling strategy.
 
 ### Practical Example: Fleet of EV Chargers
 

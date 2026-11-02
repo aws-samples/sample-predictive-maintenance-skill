@@ -114,6 +114,8 @@ side already does this right (threshold-independent AUROC ≥ 0.75 at
   positive rate in the gate message so the number is interpretable.
 
 ### R4 — Add formulation guidance keyed to label economics
+
+> **Status: implemented by this change.** `pdm.data.label_economics.analyze_classification_label_economics` reports positive prevalence and distinct positive-event counts, and Phase 2 now uses those signals to recommend anomaly-primary, hybrid, or classification-primary-candidate strategies while still requiring user confirmation.
 The headline finding of this run: with **sparse, trip-specific** positives, the
 *unsupervised* anomaly detectors (AUROC 0.87) decisively out-ranked the
 *supervised* classifier (AUROC 0.64–0.67) — because "learn normal and flag

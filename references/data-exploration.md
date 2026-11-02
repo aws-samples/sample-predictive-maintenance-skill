@@ -122,7 +122,39 @@ Sections:
 5. **EAV Table Details** (if applicable) — entity/attribute/value columns, sensor list, partition metadata
 6. **Data Quality Observations** — nulls, type issues, sparse columns, leakage-guard findings and disposition
 7. **Feature Candidates** — grouped by signal type (electrical, thermal, behavioral, metadata)
-8. **Label Candidates** — all possible targets with source, construction logic, estimated positive rate
+8. **Label Candidates** — all possible targets with source, construction logic, estimated positive rate, and distinct positive-event count when temporal ordering is available
+
+### Classification Label Economics
+
+For every binary or multi-label classification candidate, quantify whether the labels contain enough independent failure evidence to justify making supervised classification the primary formulation. Positive rows alone can be misleading: a four-hour incident may generate dozens of positive rows but still represent only one failure event.
+
+Use the shared helper on the assembled candidate frame:
+
+```python
+from pdm.data.label_economics import (
+    analyze_classification_label_economics,
+    format_label_economics_report,
+)
+
+label_economics = analyze_classification_label_economics(
+    candidate_df,
+    label_columns=target_columns,
+    entity_col=entity_col,      # optional; keeps events separate per asset
+    time_col=observation_time,  # optional; enables distinct-event counting
+)
+print(format_label_economics_report(label_economics))
+```
+
+A **distinct positive event** is a contiguous run of positive observations after sorting by entity and time. If there is no reliable temporal ordering, the helper leaves event count unavailable rather than inventing adjacency from row order.
+
+Default screening rules:
+- positive rate **< 1%** → sparse label;
+- distinct positive events **< 20** → few-event label, when event counting is available;
+- all selected labels sparse/few-event → `anomaly_primary`; recommend anomaly detection as the primary formulation and classification as a secondary check for known failure modes;
+- only some labels sparse/few-event → `hybrid`; keep classification for supported labels and add anomaly detection for sparse or novel failure modes;
+- no labels flagged → `classification_primary_candidate`; supervised classification can remain primary, subject to the rest of the formulation decision.
+
+These thresholds are deliberately **advisory screening thresholds**. They do not override censoring/run-to-failure evidence (which may point to survival or RUL), benchmark protocols, safety requirements, or the user's operational constraints. Record the per-label positive count, positive rate, distinct-event count, and recommendation in `data_exploration.md`, then explain the recommendation when asking the user to confirm the formulation.
 
 ### Low-Positives Label Decision Framework
 
@@ -165,14 +197,15 @@ Rules:
 
 **Required topics** (always ask, never skip or infer):
 - **Target label** — what should the model predict? (May be answered in user's initial prompt — confirm.)
-- **Formulation** — binary / multi-label / RUL / survival? **Recommend** based on data:
+- **Formulation** — binary / multi-label / RUL / survival? **Recommend** based on data and label economics:
   - Run-to-failure with known failure times → **RUL regression**
   - Maintenance/censoring present → **survival analysis**
-  - Multiple independent failure modes labeled → **multi-label classification**
-  - Binary health/failure flags → **binary classification**
+  - Multiple independent failure modes labeled → **multi-label classification candidate**
+  - Binary health/failure flags → **binary classification candidate**
+  - For either classification candidate, run the label-economics analysis. If all labels are sparse (<1%) and/or few-event (<20 distinct events), recommend **anomaly detection as primary + classification as secondary**. If only some labels are sparse/few-event, recommend a **hybrid** strategy. Include the measured rates/event counts in the question.
 - **Feature scope** — which data sources should be used as model input features? List ALL available tables and ask the user to confirm inclusion. Do NOT assume a table is excluded just because the user didn't mention it — they may not know what's available.
 - **Prediction window (horizon)** — how many days ahead should the model predict failures? This is an operational decision driven by maintenance lead times and business processes, NOT by data properties. Always ask explicitly. Propose a default (e.g., 7 or 14 days) with rationale, but require confirmation.
-- **Anomaly Detection** — also build an unsupervised Isolation Forest model to catch novel failure modes? **Recommend yes** when the data has high-dimensional sensor readings or when the labelled failure modes are unlikely to be exhaustive.
+- **Anomaly Detection** — also build an unsupervised Isolation Forest model to catch novel failure modes? **Recommend yes** when the data has high-dimensional sensor readings, when labelled failure modes are unlikely to be exhaustive, or when classification label economics returns `anomaly_primary` / `hybrid`. For `anomaly_primary`, present anomaly detection as the recommended primary model rather than merely an optional extra.
 - **Optimization priority** — does the user care more about recall (catching all failures), precision (minimizing false alarms), or balanced F1? This is an operational decision driven by maintenance capacity, safety criticality, and false-alarm tolerance. Classification maps these choices to F2, F0.5, and F1 respectively. The inference threshold is calibrated on AutoGluon's internal validation data for that objective; never use final test labels to select the threshold.
 
 **When the answer is obvious from context, propose it instead of asking open-ended — but still STOP AND WAIT for confirmation.** Use a confirmation format:
