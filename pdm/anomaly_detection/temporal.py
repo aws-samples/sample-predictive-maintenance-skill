@@ -15,6 +15,7 @@ scores across anomaly segments, boosting recall under this protocol.
 """
 
 import json
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,28 @@ from sklearn.preprocessing import StandardScaler
 from scipy.ndimage import uniform_filter1d
 
 from pdm.base import PDMModel, PredictionResult, TrainResult
+
+
+# One dense float32 window matrix at this size warrants advance notice.
+# PCA and reconstruction need additional allocations beyond this estimate.
+WINDOW_MEMORY_WARNING_BYTES = 512 * 1024**2
+
+
+def estimate_window_memory_bytes(
+    n_rows: int,
+    n_features: int,
+    window_size: int,
+    itemsize: int = 4,
+) -> int:
+    """Lower-bound bytes for one flattened sliding-window matrix.
+
+    Counts complete windows only. Does not include scaling, PCA, or the
+    reconstruction arrays, so peak memory can be considerably larger.
+    """
+    if n_rows < 0 or n_features < 0 or window_size < 1 or itemsize < 1:
+        raise ValueError("Rows/features must be nonnegative; window_size/itemsize positive")
+    n_windows = max(0, n_rows - window_size + 1)
+    return n_windows * window_size * n_features * itemsize
 
 
 class TemporalAnomalyDetector(PDMModel):
@@ -265,9 +288,23 @@ class TemporalAnomalyDetector(PDMModel):
     # ------------------------------------------------------------------
 
     def _create_windows(self, data: np.ndarray, window_size: int) -> np.ndarray:
-        """Create sliding windows using stride_tricks (fast, zero-copy)."""
+        """Create flattened sliding windows; reshape may materialize a copy."""
         n_samples = len(data) - window_size + 1
         n_features = data.shape[1]
+        estimated_bytes = estimate_window_memory_bytes(
+            len(data), n_features, window_size, data.dtype.itemsize
+        )
+        if estimated_bytes >= WINDOW_MEMORY_WARNING_BYTES:
+            warnings.warn(
+                "TemporalAnomalyDetector sliding-window matrix may require "
+                f"{estimated_bytes / (1024**2):.1f} MiB for "
+                f"{n_samples} windows x {window_size} timesteps x "
+                f"{n_features} features. This is a lower bound: PCA and "
+                "reconstruction allocate additional memory. Reduce window_size, "
+                "select fewer features, or subsample rows if memory is limited.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         windows = np.lib.stride_tricks.sliding_window_view(
             data, window_size, axis=0
         )  # (n_samples, n_features, window_size)
