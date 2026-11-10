@@ -4,6 +4,7 @@ Iteratively improve model performance through hypothesis-driven experiments. The
 
 ## ⚠️ Gotchas (Feature Engineering & Training)
 
+- **Temporal PCA memory pre-flight:** `TemporalAnomalyDetector` issues a `RuntimeWarning` before materializing a sliding-window matrix estimated at 512 MiB or more. The estimate is `(n_rows - window_size + 1) × window_size × n_features × dtype.itemsize` for one flattened matrix; PCA and reconstruction need additional memory. Reduce the window size, select fewer sensors, or subsample a long series when warned. The guard is advisory and does not change predictions or stop execution.
 - **Zero-variance features**: Always drop zero-variance features in `runtime.py` before saving — EAV pivots commonly produce them from sensors that never vary.
 - **`encode_categoricals` column invalidation**: `encode_categoricals(df, cols)` drops original columns and creates `*_enc` replacements. Always recompute column lists after calling it — reusing a list computed before the call will raise `KeyError`.
 - **Multi-label label naming**: All label columns MUST be prefixed with `label_` for auto-detection by `validate_dataset.py` and `train.py`.

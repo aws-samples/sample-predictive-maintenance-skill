@@ -162,10 +162,12 @@ and dropped it by hand in the loader. There is currently no leakage guidance in
 Phase-2 item 4 ([SKILL.md:218](../../SKILL.md)) asks for an operating priority that affects both model selection and threshold selection. The implementation deliberately uses F2 and F0.5 for recall- and precision-emphasis instead of maximizing pure recall or precision, which can produce degenerate all-positive or almost-all-negative operating points.
 
 ### R8 — Lower-priority polish
-- **Memory pre-flight for the temporal detector:** estimate
-  `n_rows × window × n_features × 4 bytes` and warn (suggest a smaller window or
-  feature subsampling) before allocating. The float32 fix (B3) helps but does not
-  scale indefinitely.
+- **Memory pre-flight for the temporal detector (implemented):**
+  `TemporalAnomalyDetector` now warns before a flattened sliding-window matrix
+  would need at least 512 MiB. It estimates complete windows × window size ×
+  features × dtype bytes (float32 in normal training/scoring). PCA and
+  reconstruction need additional memory, so the warning recommends smaller
+  windows, fewer features, or row subsampling without blocking execution.
 - **SMOTE caveat for wide, very-low-positive data:** in our run SMOTE ran (after
   B2) but produced F1 0 and only a marginal AUROC gain — interpolating synthetic
   positives in 362-dim space from ~144 reals is dubious. Worth a one-line caution
