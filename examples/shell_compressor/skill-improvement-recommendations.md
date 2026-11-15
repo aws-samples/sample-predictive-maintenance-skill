@@ -172,10 +172,13 @@ Phase-2 item 4 ([SKILL.md:218](../../SKILL.md)) asks for an operating priority t
   B2) but produced F1 0 and only a marginal AUROC gain — interpolating synthetic
   positives in 362-dim space from ~144 reals is dubious. Worth a one-line caution
   in the experimentation guidance.
-- **Per-experiment output directories:** our experiment runner initially saved
-  each window size's model to the same path and silently overwrote it (caught by a
-  recomputed-metric sanity check). If the skill ships experiment-runner guidance,
-  recommend unique output paths and a recompute-from-artifacts check.
+- **Per-experiment output directories (implemented):** the Shell Compressor
+  temporal PCA and classifier threshold runners now reserve unique, atomic
+  per-run directories, preserving existing artifacts on repeated execution.
+  The temporal runner reloads each saved model and verifies sample predictions.
+  Phase 5 guidance also requires unique training output paths and a saved-artifact
+  consistency check before results are accepted. The general training CLIs
+  remain unchanged and still require the caller to choose non-colliding paths.
 
 ---
 
