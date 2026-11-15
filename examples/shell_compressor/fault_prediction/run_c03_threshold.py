@@ -19,11 +19,12 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, precision_score, recall_score
 from autogluon.tabular import TabularPredictor
 
+from pdm.experiment_outputs import reserve_experiment_run_dir
+
 HERE = Path(__file__).parent
 DATA = HERE.parent / "data"
 MODEL = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "experiments" / "c01_rebalance" / "model" / "ag_model"
-OUT = HERE / "experiments" / "c03_threshold"
-OUT.mkdir(parents=True, exist_ok=True)
+OUT_ROOT = HERE / "experiments" / "c03_threshold"
 
 TARGET = "machine_failure"
 VAL_FRAC = 0.2  # temporal tail of train used as validation for threshold pick
@@ -88,5 +89,6 @@ summary = {
     "test_positive_rate": round(float(y_test.mean()), 5),
 }
 print(json.dumps(summary, indent=2), flush=True)
-(OUT / "summary.json").write_text(json.dumps(summary, indent=2))
-print(f"[done] saved to {OUT}", flush=True)
+out = reserve_experiment_run_dir(OUT_ROOT, "threshold")
+(out / "summary.json").write_text(json.dumps(summary, indent=2))
+print(f"[done] saved to {out}", flush=True)
