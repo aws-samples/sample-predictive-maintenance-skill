@@ -44,6 +44,20 @@ float32 — see memory note below).
   For deployment, w12 is the better pick (actionable alarm rate), and AD overall is
   the stronger formulation for this dataset than supervised classification.
 
+### Repeating the experiment safely
+
+`run_e01_temporal_pca.py` now reserves a separate directory for every run,
+including repeated runs with the same window and component count:
+
+`anomaly_detection/experiments/01_temporal_pca/w6_components30_<UTC-and-unique-suffix>/`
+
+Each directory contains its own `model/` and `summary.json`. The runner
+reloads the saved model and checks prediction scores on a bounded held-out
+slice before recording `saved_artifact_score_check: passed`. Existing
+experiment results and legacy artifacts are preserved. The result table above
+contains the original benchmark evidence; the new safeguard does not claim
+to have rerun those benchmark measurements.
+
 ### Memory note (8GB box)
 
 `StandardScaler.fit_transform` upcasts to float64, which made the flattened

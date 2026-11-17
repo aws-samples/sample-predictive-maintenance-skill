@@ -14,11 +14,11 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 from pdm.anomaly_detection.temporal import TemporalAnomalyDetector
+from pdm.experiment_outputs import reserve_experiment_run_dir
 
 HERE = Path(__file__).parent
 DATA = HERE.parent / "data"
-OUT = HERE / "experiments" / "01_temporal_pca"
-OUT.mkdir(parents=True, exist_ok=True)
+OUT_ROOT = HERE / "experiments" / "01_temporal_pca"
 
 WINDOW = int(sys.argv[1]) if len(sys.argv) > 1 else 6
 N_COMPONENTS = int(sys.argv[2]) if len(sys.argv) > 2 else 30
@@ -36,7 +36,7 @@ for df in (train, test):
     floatcols = df.select_dtypes(include=["float64"]).columns
     df[floatcols] = df[floatcols].astype(np.float32)
 
-# detector expects a "label" column on the test set for threshold optimisation,
+# detector expects a "label" column for held-out evaluation,
 # and trains on normal rows only
 train["label"] = train["machine_failure"].astype(int)
 test["label"] = test["machine_failure"].astype(int)
@@ -95,6 +95,20 @@ summary = {
 }
 print(f"[result] {json.dumps(summary, indent=2)}", flush=True)
 
-det.save(OUT / "model")
-(OUT / "summary.json").write_text(json.dumps(summary, indent=2))
-print(f"[done] saved to {OUT}", flush=True)
+# Atomically reserve a fresh directory for every window/configuration run.
+# Existing models and summaries remain untouched even for repeated settings.
+out = reserve_experiment_run_dir(OUT_ROOT, f"w{WINDOW}_components{N_COMPONENTS}")
+det.save(out / "model")
+
+# Confirm the saved artifact reproduces scores on a bounded held-out slice.
+# This avoids re-scoring the whole wide test series just for provenance.
+reloaded = TemporalAnomalyDetector.load(out / "model")
+smoke_sample = test.iloc[:min(len(test), max(WINDOW, 64))]
+np.testing.assert_allclose(
+    det.predict(smoke_sample).predictions["anomaly_score"].to_numpy(),
+    reloaded.predict(smoke_sample).predictions["anomaly_score"].to_numpy(),
+    rtol=1e-5, atol=1e-6,
+)
+summary["saved_artifact_score_check"] = "passed"
+(out / "summary.json").write_text(json.dumps(summary, indent=2))
+print(f"[done] saved to {out}", flush=True)

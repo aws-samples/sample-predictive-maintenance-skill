@@ -232,6 +232,35 @@ Each experiment lives in `./<model_type>/experiments/NN_name/`:
     └── ...
 ```
 
+### Run Output Isolation and Artifact Verification
+
+An experiment's `NN_name/` folder identifies the hypothesis, **not** a reusable
+model-output destination. When repeating a run or changing its window size,
+features, seeds, or hyperparameters, write to a **new, uniquely named run
+directory** (for example,
+`anomaly_detection/experiments/01_temporal/runs/w6_components30_<run-id>/model/`).
+Never point two runs at the same populated `--output` path: training scripts
+may replace existing models or metrics. This applies to parallel runs too.
+Keep old artifacts instead of deleting them to make room.
+
+For custom Python experiment runners, use
+`pdm.experiment_outputs.reserve_experiment_run_dir(root, variant)` to reserve
+a fresh run directory atomically; it includes a UTC stamp and unique suffix.
+Pass the returned path into the model saver. Reserve the path **before saving**
+and record it in the experiment log, together with the effective configuration,
+dataset/split reference, and reported metrics.
+
+Before accepting a result, **reload the model from the saved run directory**
+and reproduce predictions on a fixed held-out sample. Where practical,
+recompute ranking metrics (such as AUROC/AP) from the saved artifacts and
+compare with the logged values. Investigate mismatches rather than promoting
+an unverified run. Do not tune model thresholds on held-out test labels.
+
+The Shell Compressor temporal PCA example demonstrates both unique per-run
+paths and a bounded reload/prediction consistency check. The model-training
+CLIs are unchanged; **their output paths are not automatically protected**,
+so choose a fresh `--output` directory for each CLI experiment.
+
 ## Experiments 01+: Hypothesis-Driven Improvement
 
 ### A) Hypothesize
