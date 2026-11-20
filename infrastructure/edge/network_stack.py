@@ -14,6 +14,8 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from solution import stack_description
+
 
 # IoT VPC endpoints are not available in all AZs. This mapping provides
 # a known-good AZ per region. Extend as needed for additional regions.
@@ -39,6 +41,7 @@ class PdmEdgeNetworkStack(Stack):
     """
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+        kwargs.setdefault("description", stack_description("Edge Network"))
         super().__init__(scope, construct_id, **kwargs)
 
         project_name = self.node.try_get_context("project_name") or "pdm-edge"

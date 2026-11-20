@@ -25,6 +25,8 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from solution import stack_description
+
 
 class PdmEdgeResourcesStack(Stack):
     """IoT/Greengrass resources: TES role, IoT policy, S3 bucket, observability.
@@ -37,6 +39,7 @@ class PdmEdgeResourcesStack(Stack):
     """
 
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+        kwargs.setdefault("description", stack_description("Edge Resources"))
         super().__init__(scope, construct_id, **kwargs)
 
         project_name = self.node.try_get_context("project_name") or "pdm-edge"

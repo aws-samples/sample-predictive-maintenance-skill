@@ -25,6 +25,8 @@ from aws_cdk import (
 )
 from constructs import Construct
 
+from solution import stack_description
+
 from network_stack import PdmEdgeNetworkStack
 from resources_stack import PdmEdgeResourcesStack
 
@@ -52,6 +54,7 @@ class PdmEdgeDemoDeviceStack(Stack):
         resources: PdmEdgeResourcesStack,
         **kwargs,
     ) -> None:
+        kwargs.setdefault("description", stack_description("Edge Demo Device"))
         super().__init__(scope, construct_id, **kwargs)
 
         project_name = self.node.try_get_context("project_name") or "pdm-edge"

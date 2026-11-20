@@ -19,11 +19,12 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-from solution import SOLUTION_USER_AGENT
+from solution import SOLUTION_USER_AGENT, stack_description
 
 
 class BatchInferenceStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
+        kwargs.setdefault("description", stack_description("Batch Inference"))
         super().__init__(scope, construct_id, **kwargs)
 
         # --- Context variables (configurable per project) ---
