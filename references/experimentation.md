@@ -9,6 +9,12 @@ Iteratively improve model performance through hypothesis-driven experiments. The
 - **`encode_categoricals` column invalidation**: `encode_categoricals(df, cols)` drops original columns and creates `*_enc` replacements. Always recompute column lists after calling it — reusing a list computed before the call will raise `KeyError`.
 - **Multi-label label naming**: All label columns MUST be prefixed with `label_` for auto-detection by `validate_dataset.py` and `train.py`.
 
+- **SMOTE on sparse, wide sensor data:** Synthetic Minority Over-sampling Technique (SMOTE) interpolates between minority-class neighbours; it does not create new independent failure events. With hundreds of sensor features, very few positives or repeated observations from the same failure episode, synthetic points may poorly represent physical equipment states. Treat SMOTE as an optional experiment, not a default fix for imbalance. Check the [label economics](data-exploration.md) first and compare separate unresampled, `--rebalance` and `--smote` binary-classification runs. If supervised ranking remains weak, consider the anomaly-primary or hybrid formulation instead.
+
+  Split by time or asset before resampling. Resample only fitting data; keep validation and test sets at their original prevalence. The current SMOTE training paths oversample before AutoGluon's internal validation split, so internal validation scores and calibrated thresholds can reflect synthetic samples and altered prevalence. For operating-point selection, use a separate, untouched validation split from the training history; evaluate the chosen model and threshold on an untouched final test split. Compare ROC AUC, average precision (AP), and precision/recall/F1 at that operating point, using the existing classification quality gate with the original training positive rate.
+
+  In the [Shell Compressor run](../examples/shell_compressor/fault_prediction/experiments.md), with 362 sensors and about 144 positive training rows across a handful of trips, SMOTE improved test AUROC only from 0.643 (weighting) to 0.665 and AP from 0.007 to 0.013; both had deployable-threshold F1 of 0.00. This is a dataset-specific caution, not a universal rule against SMOTE.
+
 ## Step 0: Build Domain Knowledge Base (LLM Wiki)
 
 **Before proposing any experiments**, build a focused LLM Wiki covering the specific predictive maintenance formulation under development. This ensures experiments are grounded in the state of the art rather than ad-hoc intuition.
