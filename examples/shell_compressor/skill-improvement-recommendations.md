@@ -168,10 +168,16 @@ Phase-2 item 4 ([SKILL.md:218](../../SKILL.md)) asks for an operating priority t
   features × dtype bytes (float32 in normal training/scoring). PCA and
   reconstruction need additional memory, so the warning recommends smaller
   windows, fewer features, or row subsampling without blocking execution.
-- **SMOTE caveat for wide, very-low-positive data:** in our run SMOTE ran (after
-  B2) but produced F1 0 and only a marginal AUROC gain — interpolating synthetic
-  positives in 362-dim space from ~144 reals is dubious. Worth a one-line caution
-  in the experimentation guidance.
+- **SMOTE caveat for wide, very-low-positive data (implemented):** [Phase 5
+  guidance](../../references/experimentation.md)
+  now explains why synthetic rows do not add independent failures, recommends
+  separate unresampled and weighted baselines, and cautions that the existing
+  SMOTE paths resample before AutoGluon's internal validation split. Compare
+  models on untouched validation/test data at natural prevalence, with
+  validation-only threshold selection and the original-rate quality gate.
+  The Shell Compressor results (362 sensors, ~144 positive training rows,
+  deployable F1 0 for both SMOTE and weighting) motivate the advice; no
+  training defaults or resampling behavior have changed.
 - **Per-experiment output directories (implemented):** the Shell Compressor
   temporal PCA and classifier threshold runners now reserve unique, atomic
   per-run directories, preserving existing artifacts on repeated execution.
