@@ -176,6 +176,37 @@ response = runtime.invoke_endpoint(EndpointName="<endpoint-name>", ContentType="
 print(json.loads(response["Body"].read()))
 ```
 
+### Endpoint Request/Response Contract
+
+The SageMaker container's `/invocations` endpoint accepts **UTF-8 JSON row
+records** (`application/json`) or a **headered CSV table** (`text/csv`).
+For JSON, prefer a **non-empty array of objects**, even for a single
+observation, for example `[{"sensor_a": 0.5, "sensor_b": 1.2}]`.
+The previously supported column-oriented JSON object with equal-length arrays
+(for example `{"sensor_a": [0.5, 0.6]}`) also remains supported for existing
+callers. A bare object with scalar values, empty array, malformed JSON, or
+header-only CSV receives HTTP 400 with a JSON error description. Common Content-Type parameters such as
+`application/json; charset=utf-8` are accepted.
+
+When `code/runtime.py` is packaged, raw columns are transformed first.
+Without it, send the engineered feature columns expected by the model.
+`align_to_model` intentionally zero-fills **partially missing** features
+and drops extra columns, maintaining the existing deployment contract;
+however, a request with **none** of the expected feature names now fails
+instead of silently predicting on an entirely zero-filled matrix. Verify
+that the deployed runtime matches the trained feature schema.
+
+Prediction response field names and shapes remain unchanged
+(`prediction`/`probabilities` for a single classifier and
+`<label>_pred`/`<label>_proba` for multi-label inference). Non-finite or
+missing numeric values are emitted as JSON `null` rather than non-standard
+`NaN`/`Infinity` tokens. These contracts are validated by
+`tests/test_sagemaker_serving_contract.py`; slim-container integration
+remains covered by `tests/test_inference_container.py`.
+Malformed input and requests with no recognizable model features receive
+HTTP 400; unrelated model-loading and inference failures are not disguised as
+client errors.
+
 ### Endpoint Key Details
 
 - **Instance type**: `ml.m5.xlarge` (16GB RAM); `ml.m5.large` ok for single-label
