@@ -28,6 +28,7 @@ import pandas as pd
 from autogluon.tabular import TabularPredictor
 
 from pdm.data.utils import align_to_model
+from pdm.deployment.serving_io import FeatureSchemaError, parse_request_rows, serialize_json_response
 
 RUNTIME_FILE = "runtime.py"
 
@@ -73,13 +74,8 @@ def model_fn(model_dir):
 
 
 def input_fn(request_body, request_content_type):
-    """Deserialize input (JSON array of objects or CSV)."""
-    if request_content_type == "application/json":
-        return pd.DataFrame(json.loads(request_body))
-    if request_content_type == "text/csv":
-        from io import StringIO
-        return pd.read_csv(StringIO(request_body))
-    raise ValueError(f"Unsupported content type: {request_content_type}")
+    """Deserialize non-empty JSON row records or CSV (MIME parameters allowed)."""
+    return parse_request_rows(request_body, request_content_type)
 
 
 def model_input(input_data, model_dict):
@@ -87,6 +83,18 @@ def model_input(input_data, model_dict):
     features = input_data
     if model_dict.get("engineer_features") is not None:
         features = model_dict["engineer_features"](input_data)
+    if not isinstance(features, pd.DataFrame) or features.empty:
+        raise ValueError("Feature engineering must produce a non-empty DataFrame")
+    if not features.columns.is_unique:
+        raise ValueError("Feature engineering produced duplicate feature columns")
+    # align_to_model deliberately fills *partially* missing features with zero.
+    # However an entirely unrelated schema would silently become all-zero input.
+    expected = model_dict["feature_names"]
+    if expected and not set(expected).intersection(features.columns):
+        raise FeatureSchemaError(
+            "No expected model features found in input; check request columns "
+            "and whether code/runtime.py was packaged"
+        )
     return align_to_model(features, model_dict["metadata_path"])
 
 
@@ -123,7 +131,5 @@ def predict_fn(input_data, model_dict):
 
 
 def output_fn(result, response_content_type):
-    """Serialize output to JSON."""
-    if response_content_type == "application/json":
-        return json.dumps(result)
-    raise ValueError(f"Unsupported content type: {response_content_type}")
+    """Serialize strict JSON while preserving the SageMaker prediction contract."""
+    return serialize_json_response(result, response_content_type)
