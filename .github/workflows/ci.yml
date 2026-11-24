@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.9.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # Python version comes from .python-version (3.12), matching the
+      # inference container. LightGBM/XGBoost need libgomp at runtime.
+      - name: Install system libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgomp1
+
+      # The default dev group is the full train + test environment. The
+      # `serve` extra adds Flask, which the SageMaker HTTP contract tests
+      # need (they are skipped without it).
+      - name: Install dependencies
+        run: uv sync --frozen --extra serve
+
+      - name: Run tests
+        run: uv run --frozen --extra serve pytest tests/ -ra
