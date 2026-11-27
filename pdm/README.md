@@ -428,6 +428,52 @@ B0007,2.05,-0.003,24.0,120,0
 
 ---
 
+## Sensor availability and distribution drift monitoring
+
+Use `pdm.monitoring.detect_drift` on a telemetry window with expected numeric
+features recorded by `capture_baseline`. Check availability before imputation
+or `align_to_model`: otherwise an absent channel may already have been replaced
+by zeros and its absence cannot be recovered.
+
+```python
+from pdm.monitoring import capture_baseline, detect_drift
+
+baselines = capture_baseline(training_features, ["motor_current", "bus_voltage", "vibration"])
+report = detect_drift(telemetry_window, baselines, min_samples=30,
+                      max_unusable_fraction=0.10)
+print(report.summary())
+for channel in report.sensor_health_results:
+    print(channel.feature, channel.status.value, channel.n_valid,
+          channel.n_missing, channel.n_invalid)
+```
+
+| Sensor status | Meaning | Health severity |
+|---|---|---|
+| `available` | Enough finite numeric readings, within the configured unusable fraction | None |
+| `missing_column` | Expected feature absent from this window | Critical |
+| `no_valid_samples` | Channel present, but no usable readings (including an empty window) | Critical |
+| `insufficient_samples` | Some usable readings, but fewer than `min_samples` | Warning |
+| `degraded` | Enough usable readings, but unusable fraction exceeds the configured limit | Warning |
+
+The default 10% unusable-fraction tolerance is a configurable example, not a
+hardware specification. Null readings are counted separately from invalid
+(non-numeric or non-finite) readings. Numeric zero is a valid reading.
+Fractions use the number of supplied rows, not elapsed time or an assumed
+hardware sampling rate; the fraction is undefined for an empty window.
+
+Statistical drift checks run only on finite numeric readings and retain the
+existing KS thresholds and drift-count aggregation. `n_features_checked` and
+the drift counts describe distribution tests only; `sensor_health_results`
+describes every baseline feature. `overall_severity` and `is_healthy` account
+for both data quality and distribution drift.
+
+A missing channel can indicate a disconnected transmitter, acquisition fault,
+gateway outage, or upstream schema change. The monitor detects symptoms, not
+the physical cause. It does not diagnose open circuits, ADC saturation, stuck
+signals or hardware-specific electrical limits; those require sensor-specific
+specifications and diagnostic checks. The API uses explicit feature baselines
+and is not automatically wired into the deployed inference handlers.
+
 ## Understanding the Metrics
 
 ### RUL: RMSE (Root Mean Squared Error)
