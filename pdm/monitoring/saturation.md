@@ -17,6 +17,7 @@ results = detect_saturation(telemetry, {
     "adc_code": SaturationConfig(
         lower_limit=0, upper_limit=4095,
         min_consecutive_samples=5, tolerance=0,
+        rail_fraction_threshold=0.20,  # optional, illustrative
     ),
     # Example only: a calibrated bipolar voltage measurement.
     "bus_voltage_v": SaturationConfig(
@@ -27,7 +28,8 @@ results = detect_saturation(telemetry, {
 for channel in results:
     print(channel.feature, channel.status.value,
           channel.lower.suspected, channel.upper.suspected,
-          channel.rail_fraction, channel.ongoing)
+          channel.rail_fraction, channel.occupancy_suspected,
+          channel.ongoing)
 ```
 
 The examples are illustrative, not universal hardware limits. Tolerance is
@@ -39,14 +41,20 @@ engineering units are subject to ordinary representation precision.
 | Result | Interpretation |
 |---|---|
 | `missing_column` | Configured channel absent; no observations assessed |
-| `insufficient_samples` | No sufficiently long contiguous in-range window |
-| `no_saturation_detected` | No qualifying sustained same-rail run |
-| `suspected_saturation` | At least one qualifying lower or upper rail run |
+| `insufficient_samples` | No sufficiently long contiguous in-range window and no qualifying occupancy event |
+| `no_saturation_detected` | Neither configured saturation criterion is met |
+| `suspected_saturation` | Qualifying lower/upper rail run or optional aggregate occupancy criterion |
 
 Both rails have independent counts, longest runs and trailing runs. An isolated
 rail hit or rapid switching between rails does not establish sustained
 same-rail occupancy, but remains visible in counts and `rail_fraction`. The
-fraction uses only finite in-range samples as its denominator and is undefined
+optional `rail_fraction_threshold` (disabled by default, greater than zero and
+at most one) flags aggregate occupancy at or above the configured fraction
+when the window contains at least `min_consecutive_samples` in-range readings,
+even if they are not contiguous. This can flag repeated clipped peaks without
+a sustained run. `occupancy_suspected` distinguishes this criterion from the
+run-based criteria; it does not itself imply an ongoing run. The fraction
+uses only finite in-range samples as its denominator and is undefined
 (`None`) when there are none. Values outside the configured measurement limits
 are counted separately (below or above range), not clipped or imputed.
 Non-numeric, missing and non-finite samples are counted as invalid. Numeric

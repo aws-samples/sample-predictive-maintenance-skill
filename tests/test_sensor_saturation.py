@@ -11,8 +11,10 @@ from pdm.monitoring.saturation import (
 )
 
 
-def check(values, *, lower=0, upper=4095, minimum=3, tolerance=0):
-    config = SaturationConfig(lower, upper, minimum, tolerance)
+def check(values, *, lower=0, upper=4095, minimum=3, tolerance=0,
+          rail_fraction_threshold=None):
+    config = SaturationConfig(lower, upper, minimum, tolerance,
+                              rail_fraction_threshold)
     return detect_saturation(pd.DataFrame({"adc": values}), {"adc": config})[0]
 
 
@@ -189,3 +191,40 @@ def test_scan_matches_independent_run_length_reference():
             assert rail.trailing_run == (len(groups[-1]) if values[-1] == code else 0)
         assert (result.n_in_range + result.n_invalid +
                 result.n_below_range + result.n_above_range) == len(values)
+
+
+def test_optional_fraction_detects_repeated_clipping_without_sustained_run():
+    result = check([0, 1000, 4095, 2000] * 3, rail_fraction_threshold=0.5)
+    assert result.rail_fraction == 0.5
+    assert result.occupancy_suspected
+    assert result.status == SaturationStatus.SUSPECTED_SATURATION
+    assert not result.lower.suspected and not result.upper.suspected
+    assert not result.ongoing
+
+
+def test_fraction_threshold_is_opt_in_and_inclusive():
+    values = [0, 1000, 4095, 2000] * 3
+    assert not check(values).occupancy_suspected
+    assert not check(values, rail_fraction_threshold=0.51).occupancy_suspected
+    assert check(values, rail_fraction_threshold=0.5).occupancy_suspected
+
+
+def test_fraction_requires_enough_in_range_samples():
+    result = check([0, None, 4095, None], rail_fraction_threshold=1)
+    assert result.rail_fraction == 1
+    assert not result.occupancy_suspected
+    assert result.status == SaturationStatus.INSUFFICIENT_SAMPLES
+
+
+def test_fraction_ignores_invalid_and_outside_values_but_reports_them():
+    result = check([0, None, 4095, -1, 0, 4096], rail_fraction_threshold=1)
+    assert result.rail_fraction == 1
+    assert result.n_in_range == 3
+    assert result.n_invalid == result.n_below_range == result.n_above_range == 1
+    assert result.occupancy_suspected and not result.ongoing
+
+
+@pytest.mark.parametrize("fraction", [0, -0.1, 1.01, np.nan, np.inf, True, "0.5"])
+def test_invalid_fraction_threshold(fraction):
+    with pytest.raises(ValueError, match="rail_fraction_threshold"):
+        SaturationConfig(0, 4095, 3, rail_fraction_threshold=fraction)

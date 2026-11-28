@@ -46,6 +46,7 @@ class SaturationConfig:
     upper_limit: float
     min_consecutive_samples: int
     tolerance: float = 0.0
+    rail_fraction_threshold: float | None = None
 
     def __post_init__(self):
         lower = _finite_real(self.lower_limit, "lower_limit")
@@ -59,6 +60,11 @@ class SaturationConfig:
                 or not isinstance(self.min_consecutive_samples, Integral)
                 or self.min_consecutive_samples < 2):
             raise ValueError("min_consecutive_samples must be an integer >= 2")
+        if self.rail_fraction_threshold is not None:
+            fraction = _finite_real(self.rail_fraction_threshold, "rail_fraction_threshold")
+            if not 0 < fraction <= 1:
+                raise ValueError("rail_fraction_threshold must be in (0, 1]")
+            object.__setattr__(self, "rail_fraction_threshold", fraction)
         object.__setattr__(self, "lower_limit", lower)
         object.__setattr__(self, "upper_limit", upper)
         object.__setattr__(self, "tolerance", tolerance)
@@ -95,6 +101,7 @@ class SaturationResult:
     longest_in_range_run: int
     lower: RailActivity
     upper: RailActivity
+    occupancy_suspected: bool = False
 
     @property
     def rail_fraction(self) -> float | None:
@@ -166,7 +173,15 @@ def _check_channel(
         RailActivity(counts[i], longest[i], trailing[i], required)
         for i in (0, 1)
     )
-    if lower.suspected or upper.suspected:
+    # The optional aggregate criterion can detect repeated clipped peaks
+    # even when no single rail run meets the consecutive-sample threshold.
+    occupancy_suspected = (
+        config.rail_fraction_threshold is not None
+        and n_in_range >= required
+        and (lower.n_samples + upper.n_samples) / n_in_range
+        >= config.rail_fraction_threshold
+    )
+    if lower.suspected or upper.suspected or occupancy_suspected:
         status = SaturationStatus.SUSPECTED_SATURATION
     elif longest_valid < required:
         status = SaturationStatus.INSUFFICIENT_SAMPLES
@@ -175,7 +190,7 @@ def _check_channel(
 
     return SaturationResult(
         feature, status, len(readings), n_in_range, n_invalid, n_below,
-        n_above, longest_valid, lower, upper
+        n_above, longest_valid, lower, upper, occupancy_suspected
     )
 
 
@@ -184,10 +199,12 @@ def detect_saturation(
 ) -> list[SaturationResult]:
     """Report suspected sustained rail occupancy for explicitly configured sensors.
 
-    Use sample order as supplied. Invalid or out-of-range samples break runs;
-    an isolated limit hit is counted but does not establish sustained saturation.
-    A result of no saturation does not mean that the telemetry or equipment
-    is healthy. Review invalid and out-of-range counts independently.
+    Use sample order as supplied. Invalid or out-of-range samples break runs.
+    By default, only sustained same-rail occupancy triggers suspicion. When a
+    rail_fraction_threshold is configured, aggregate rail occupancy may also
+    trigger suspicion with at least min_consecutive_samples in-range readings
+    in the entire window. The aggregate criterion is not an ongoing run.
+    No saturation detected does not establish telemetry or equipment health.
     """
     if not data.columns.is_unique:
         raise ValueError("data must have unique feature columns")
